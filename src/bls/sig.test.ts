@@ -5,14 +5,14 @@ import { hashTypedData, type HashTypedDataInput } from "../typed-data/hash.js";
 import {
   BLS_SIGN_DST,
   TYPED_DATA_SIG_TAG,
+  buildTypedDataSignedMessage,
   verifyBlsDigest,
   verifyTypedDataSignature,
 } from "./sig.js";
 
 /**
  * Deterministic BLS12-381 test key pair. Not derived from any wallet seed -
- * this module's tests generate and own their own keys (per the phase brief,
- * golden vectors under connect/vectors/ are out of scope here).
+ * this module's tests generate and own their own keys.
  */
 const TEST_SK = 424242424242424242424242424242n % bls12_381.fields.Fr.ORDER;
 const TEST_PK_BYTES = bls12_381.G2.ProjectivePoint.BASE.multiply(TEST_SK).toRawBytes(true);
@@ -82,6 +82,18 @@ describe("./bls: TYPED_DATA_SIG_TAG (spec 12.1)", () => {
   it("BLS_SIGN_DST matches the unchanged, standard Dusk V2 DST", () => {
     expect(BLS_SIGN_DST).toBe("BLS_SIG_BLS12381G1_XMD:SHA-256_DUSK_V2");
   });
+});
+
+describe("./bls: buildTypedDataSignedMessage", () => {
+  it("exports the existing tagged-message construction for wallet signers", () => {
+    const digest = Uint8Array.from({ length: 32 }, (_, i) => i);
+    expect(buildTypedDataSignedMessage(digest)).toEqual(taggedMessage(digest));
+  });
+
+  it.each([new Uint8Array(31), new Uint8Array(33), Array(32).fill(0), "0".repeat(32), null])(
+    "rejects a non-32-byte Uint8Array input: %j",
+    value => expect(() => buildTypedDataSignedMessage(value as Uint8Array)).toThrow(),
+  );
 });
 
 describe("./bls: verifyTypedDataSignature", () => {

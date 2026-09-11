@@ -1,13 +1,12 @@
 /**
- * Dusk typed-data v1 hashing (opt-in).
+ * Dusk typed-data v1 hashing.
  *
- * This entrypoint is not part of the root `@dusk/connect` export - import it
- * explicitly from `@dusk/connect/typed-data` when a dApp or wallet needs to
- * compute or verify a Dusk typed-data v1 digest.
+ * The root entrypoint contains no wallet, provider or BLS-curve integration.
+ * Import `@dusk/typed-data/bls` separately for tagged signature verification.
  *
  * @example
  * ```ts
- * import { hashTypedDataHex } from "@dusk/connect/typed-data";
+ * import { hashTypedDataHex } from "@dusk/typed-data";
  * ```
  *
  * @module

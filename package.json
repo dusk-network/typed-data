@@ -1,0 +1,42 @@
+{
+  "name": "@dusk/typed-data",
+  "version": "0.1.0-next.0",
+  "description": "Dusk typed-data validation, hashing and tagged BLS verification.",
+  "author": "ichbindas <54631150+ichbindas@users.noreply.github.com>",
+  "contributors": ["Hein Dauven <heindauven@gmail.com>"],
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/typed-data/index.d.ts",
+      "import": "./dist/typed-data/index.js"
+    },
+    "./bls": {
+      "types": "./dist/bls/index.d.ts",
+      "import": "./dist/bls/index.js"
+    },
+    "./vectors/*": "./vectors/typed-data-v1/*",
+    "./spec": "./docs/typed-data-v1.md"
+  },
+  "files": ["dist", "vectors", "docs/typed-data-v1.md", "README.md", "CHANGELOG.md", "PROVENANCE.md", "LICENSE"],
+  "publishConfig": { "access": "public" },
+  "dependencies": {
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "generate:typed-data-vectors": "node scripts/generate-typed-data-vectors.ts",
+    "ci": "npm run build && npm run test:coverage",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.4",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.4"
+  }
+}

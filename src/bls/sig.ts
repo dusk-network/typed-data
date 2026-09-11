@@ -40,9 +40,9 @@ export const TYPED_DATA_SIG_TAG = "DUSK_TYPED_DATA_SIG_V1\0";
 const TYPED_DATA_SIG_TAG_BYTES = new TextEncoder().encode(TYPED_DATA_SIG_TAG);
 
 /** `SIG_TAG || digest` (spec 12.1). Throws unless `digest` is exactly 32 bytes. */
-function buildTypedDataSignedMessage(digest: Uint8Array): Uint8Array {
-  if (digest.length !== 32) {
-    throw new Error(`digest must be exactly 32 bytes, got ${digest.length}`);
+export function buildTypedDataSignedMessage(digest: Uint8Array): Uint8Array {
+  if (!(digest instanceof Uint8Array) || digest.length !== 32) {
+    throw new Error("digest must be exactly 32 bytes");
   }
   const out = new Uint8Array(TYPED_DATA_SIG_TAG_BYTES.length + digest.length);
   out.set(TYPED_DATA_SIG_TAG_BYTES, 0);

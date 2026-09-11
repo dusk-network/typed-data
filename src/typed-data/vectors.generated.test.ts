@@ -12,9 +12,8 @@ import {
 /**
  * Regeneration guard for the typed-data-v1 golden vector corpus.
  *
- * vectors/typed-data-v1/**.json are the interoperability contract with the
- * wallet twin (wallet/src/shared/typedDataHash.js), which vendors them
- * verbatim (see wallet/src/shared/fixtures/typed-data-v1/SOURCE). This test
+ * vectors/typed-data-v1/**.json are the frozen interoperability contract for
+ * this shared package and its Wallet/Connect consumers. This test
  * regenerates the corpus in memory, from this repo's own reference
  * implementation, using the exact same pure functions
  * scripts/generate-typed-data-vectors.ts uses to write the files on disk -
@@ -23,8 +22,8 @@ import {
  *
  * This is what stops a hash-affecting change to src/typed-data/hash.ts (or
  * to the generator's declarative vector list) from landing with stale
- * committed vectors: this test fails long before anyone notices the wallet
- * and Connect have quietly diverged.
+ * committed vectors: sharing an implementation does not replace frozen
+ * expectations or independent native interoperability checks.
  */
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");

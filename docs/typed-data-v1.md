@@ -5,8 +5,8 @@
 **Supersedes:** all earlier `v1` drafts and golden vectors. See [Changes from the pre-freeze draft](#changes-from-the-pre-freeze-draft).
 
 This document is the single source of truth for the Dusk typed-data digest. Every
-implementation — the Connect reference (`@dusk/connect`), the wallet twin
-(`src/shared/typedDataHash.js`), and any contract-side or relayer verifier — MUST
+implementation — the shared reference (`@dusk/typed-data`) used by Connect and
+Wallet, and any contract-side or relayer verifier — MUST
 produce byte-identical digests and MUST agree on which inputs are valid.
 
 Where this document says MUST, MUST NOT, SHOULD, SHOULD NOT, MAY, the terms carry

@@ -3,8 +3,8 @@
  *
  * Normative spec: docs/typed-data-v1.md, section 15 ("Test vectors").
  *
- * Vectors are the interoperability contract between this repo and the wallet
- * twin (`wallet/src/shared/typedDataHash.js`). They MUST NOT be hand-edited -
+ * Vectors are the interoperability contract for this shared package and its
+ * consumers. They MUST NOT be hand-edited -
  * every file under `vectors/typed-data-v1/` (accept) and
  * `vectors/typed-data-v1/reject/` (reject) is derived from the declarative
  * lists below, computed with this repo's own `hashTypedDataDebug` /
@@ -35,7 +35,7 @@ import {
   type HashTypedDataInput,
   type TypedDataErrorCode,
 } from "../src/typed-data/hash.ts";
-import { bytesToHex } from "../src/bytes.ts";
+import { bytesToHex } from "@noble/hashes/utils";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ACCEPT_DIR = path.join(ROOT, "vectors/typed-data-v1");

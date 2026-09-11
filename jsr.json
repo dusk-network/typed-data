@@ -1,0 +1,17 @@
+{
+  "name": "@dusk/typed-data",
+  "version": "0.1.0-next.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/typed-data/index.ts",
+    "./bls": "./src/bls/index.ts"
+  },
+  "imports": {
+    "@noble/curves": "npm:@noble/curves@^1.9.7",
+    "@noble/hashes": "npm:@noble/hashes@^1.8.0"
+  },
+  "publish": {
+    "include": ["LICENSE", "README.md", "CHANGELOG.md", "PROVENANCE.md", "docs/*.md", "vectors/**/*.json", "src/**/*.ts"],
+    "exclude": ["src/**/*.test.ts"]
+  }
+}

@@ -1,10 +1,4 @@
-/**
- * Byte encoding helpers.
- *
- * The SDK mostly needs:
- * - hex <-> Uint8Array
- * - a tiny `toBytes()` helper for node calls
- */
+/** Hex decoding retained for compatibility with the existing BLS verifier API. */
 
 /** Return true when a value is a valid even-length hex string. */
 export function isHexString(s: unknown): s is string {
@@ -22,40 +16,4 @@ export function hexToBytes(hex: string): Uint8Array {
     out[i] = parseInt(s.slice(i * 2, i * 2 + 2), 16);
   }
   return out;
-}
-
-/** Encode bytes as a lowercase hex string without `0x`. */
-export function bytesToHex(bytes: ArrayBuffer | Uint8Array | number[]): string {
-  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes as any);
-  let s = "";
-  for (let i = 0; i < b.length; i++) {
-    const v = b[i] ?? 0;
-    s += v.toString(16).padStart(2, "0");
-  }
-  return s;
-}
-
-/**
- * Best-effort conversion of supported encodings to bytes.
- *
- * Supported:
- * - Uint8Array
- * - ArrayBuffer
- * - number[]
- * - hex string (0x.. or raw)
- */
-export function toBytes(value: unknown): Uint8Array {
-  if (value == null) return new Uint8Array();
-  if (value instanceof Uint8Array) return value;
-  if (value instanceof ArrayBuffer) return new Uint8Array(value);
-  if (Array.isArray(value)) return new Uint8Array(value);
-
-  if (typeof value === "string") {
-    const s = value.trim();
-    if (s.startsWith("0x") || isHexString(s)) {
-      return hexToBytes(s);
-    }
-  }
-
-  throw new Error("Unsupported byte encoding (use hex string, Uint8Array, ArrayBuffer, or number[])");
 }

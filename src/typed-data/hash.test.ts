@@ -85,6 +85,14 @@ describe("typed-data hash v1", () => {
 });
 
 describe("string/bytes encoding (spec 5.1)", () => {
+  it("hashes large array elements without sharing a policy budget", () => {
+    expect(hashTypedDataHex({
+      domain, origin, primaryType: "S",
+      types: { ...domainTypes, S: [{ name: "parts", type: "string[2]" }] },
+      message: { parts: ["y".repeat(400_000), "y".repeat(400_000)] },
+    })).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
   it("does not apply any value-dependent size budget (spec 11 removes it from validity)", () => {
     const big = "x".repeat(2_000_000);
     expect(() =>
@@ -130,6 +138,11 @@ describe("uint64 JSON", () => {
 });
 
 describe("validation error codes (spec section 10)", () => {
+  it("rejects an empty types map before hashing", () => {
+    const vector = loadVector("sign_in_basic.json");
+    expectCode(() => validateTypedDataParams({ ...vector.input, types: {} }), "E_PRIMARY_MISSING");
+  });
+
   it("E_PRIMARY_INVALID: primaryType is DuskTypedDataDomain", () => {
     expectCode(
       () =>
@@ -228,6 +241,24 @@ describe("checkPolicyLimits (spec section 11)", () => {
 
     expect(() => hashTypedDataHex(bigInput)).not.toThrow();
     expectCode(() => checkPolicyLimits(bigInput), "E_POLICY_LIMIT");
+  });
+
+  it("enforces the struct-count floor without also exceeding the depth floor", () => {
+    for (const count of [30, 31]) {
+      const names = Array.from({ length: count }, (_, i) => `S${i}`);
+      const input = {
+        domain, origin, primaryType: "Root",
+        types: {
+          ...domainTypes,
+          Root: names.map(name => ({ name, type: name })),
+          ...Object.fromEntries(names.map(name => [name, [{ name: "value", type: "uint8" }]])),
+        },
+        message: Object.fromEntries(names.map(name => [name, { value: 1 }])),
+      };
+      // Domain + Root + children: 32 structs pass, 33 fail; depth stays at 3.
+      if (count === 30) expect(() => checkPolicyLimits(input)).not.toThrow();
+      else expect(() => checkPolicyLimits(input)).toThrow("distinct struct types 33 exceeds floor 32");
+    }
   });
 
   it("rejects more than 256 elements in a fixed array with E_POLICY_LIMIT", () => {
