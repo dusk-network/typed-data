@@ -1,57 +1,107 @@
-# @dusk/typed-data
+# Dusk Typed Data
 
-Shared Dusk typed-data validation, SHA-256 hashing and tagged BLS verification for Wallet, Connect and other verifiers. **The v1 specification remains draft, not frozen.** Source is hosted at [dusk-network/typed-data](https://github.com/dusk-network/typed-data). The npm/JSR package is not published; registry publication and consumer migration remain separate steps.
+Dusk Typed Data is a JavaScript/TypeScript library for hashing structured messages
+and verifying Dusk wallet signatures.
+
+It is intended for off-chain requests such as signing in to a dApp or approving an
+application action. Each request describes the fields being signed and binds the
+message to an application, chain and requesting origin. A wallet can use those
+fields to show the request before signing.
+
+The library provides the encoding and verification code. It does not manage keys,
+provide an approval UI or submit transactions. For wallet discovery and requests,
+see [Dusk Connect](https://github.com/dusk-network/connect).
+
+> Typed-data v1 is a draft and requires independent encoding review before freezing.
+> The package has not been published to npm or JSR.
+
+## Usage
+
+Hash a sign-in challenge using the `@dusk/typed-data` entrypoint:
 
 ```ts
-import { checkPolicyLimits, hashTypedDataHex } from "@dusk/typed-data";
-import { verifyTypedDataSignature } from "@dusk/typed-data/bls";
+import { hashTypedDataHex } from "@dusk/typed-data";
 
-checkPolicyLimits(input); // Optional signer policy, never part of the digest.
-const digest = hashTypedDataHex(input);
-const result = verifyTypedDataSignature(input, signatureHex, publicKeyHex, {
-  chainId: "dusk:1",
+const input = {
+  domain: { name: "Example", version: "1", chainId: "dusk:2" },
+  types: {
+    DuskTypedDataDomain: [
+      { name: "name", type: "string" },
+      { name: "version", type: "string" },
+      { name: "chainId", type: "string" },
+      { name: "verifyingContract", type: "bytes32" },
+    ],
+    SignIn: [
+      { name: "statement", type: "string" },
+      { name: "nonce", type: "string" },
+    ],
+  },
+  primaryType: "SignIn",
+  message: {
+    statement: "Sign in to Example",
+    nonce: "server-issued-one-time-challenge",
+  },
   origin: "https://app.example",
-});
+};
 
-if (!result.ok) {
-  // "E_SIG_INVALID" | "E_CHAIN_MISMATCH" | "E_ORIGIN_MISMATCH"
-  throw new Error(`signature rejected: ${result.code}`);
-}
-
-result.digestHex; // the digest that was verified, no need to hash again
+const digestHex = hashTypedDataHex(input);
 ```
 
-The verification policy is required. A valid signature for another chain, or from
-another site, is still a valid signature, so a verifier that checks only the
-cryptography has not finished the job the specification describes. Pass `null`
-for a field to accept any value; it is deliberately explicit rather than an
-omitted argument, so that opting out is visible where it happens.
+With the wallet's signing result in `response`, verify the signature using its
+reported origin and your application's expected chain and origin:
 
-`input` includes `domain`, `types`, `primaryType`, `message` and `origin`; see the [normative specification](docs/typed-data-v1.md). `validateTypedDataParams` performs initial structural checks; hashing completes value validation. Invalid typed data throws `TypedDataError` with a stable `E_*` code. Application/RPC error mapping belongs to the consumer.
+```ts
+import { verifyTypedDataSignature } from "@dusk/typed-data/bls";
 
-The root exports hashing, debug intermediates, types, validation and the separate policy checker. `/bls` exports the existing verification APIs/constants plus `buildTypedDataSignedMessage(digest)`, which requires a 32-byte Uint8Array and produces `SIG_TAG || digest`. It does **not** handle wallet keys or sign. `verifyBlsDigest` is a lower-level **bare-digest** verifier, not a typed-data verifier; do not substitute it for `verifyTypedDataSignature`.
+const result = verifyTypedDataSignature(
+  { ...input, origin: response.origin },
+  response.signature,
+  response.publicKeyHex,
+  { chainId: "dusk:2", origin: "https://app.example" },
+);
 
-Wallets must supply the trusted requesting origin, enforce the active chain and permissions, obtain approval, and recheck signing context. Verifier applications must independently enforce their expected origin/chain and application-specific authorization/replay rules. Cryptographic verification alone is not authorization.
+if (!result.ok) throw new Error(result.code);
+```
 
-The root does not load the BLS curve module. Noble dependencies are pinned to exact versions; there is no Wallet, Connect, w3sper, DOM-rendering or Node-runtime dependency. ESM JavaScript and TypeScript declarations are built for ES2022; JSR uses the TypeScript entrypoints.
+Check `result.ok`, not the result object itself. Both policy fields are required;
+`null` explicitly skips a check. Verification uses Dusk's BLS V2 scheme.
+Applications must still check the expected signer and enforce authorization and
+replay protection, such as consuming the nonce and checking expiry.
 
-## Tests and vectors
+Wallets must supply the trusted requesting origin, enforce the active chain and
+permissions, obtain approval, and recheck the signing context. `checkPolicyLimits`
+is the separate signer-side resource check; hashing does not apply it. Invalid
+typed data throws `TypedDataError` with an `E_*` code.
+
+`buildTypedDataSignedMessage` constructs the tagged bytes a wallet signs.
+`verifyBlsDigest` verifies a bare digest; it must not be used to verify typed-data
+signatures. See the [specification](docs/typed-data-v1.md) for the format, supported
+types and signing rules.
+
+## Development
+
+Build and test from a checkout:
 
 ```sh
 npm ci
 npm run ci
-npm run generate:typed-data-vectors
-npm run generate:bls-vectors
-npm run test:bls-native # Requires Rust/Cargo; compares all frozen BLS outputs.
-npm pack
 ```
 
-The 14 accept and 22 reject vectors under `vectors/typed-data-v1/` include the new unreachable-type case; all 35 pre-extraction vectors retain their exact bytes. Regeneration must not silently revise them. npm consumers can resolve fixture files through `@dusk/typed-data/vectors/<name>.json` and the specification through `@dusk/typed-data/spec`. The generator remains independently pinned to the signature tag.
+The build produces ESM JavaScript and TypeScript declarations in `dist/`. To create
+a package for local use, run `npm pack`.
 
-The five vectors under `vectors/bls-v1/` pin public test-seed key derivation, little-endian scalar encoding, tagged messages and G1 signatures under the Dusk V2 DST. `npm run test:bls-native` compares every expected byte with the locked Rust emitter; it never rewrites fixtures. The seeds/scalars are public test data and must never be funded. Rust derivation is transcribed from wallet-core, and the emitter consumes fixed digests: this is independent BLS interoperability evidence, not an independent typed-data encoder or a whole-wallet audit.
+To regenerate the test vectors and compare BLS results with the Rust implementation:
 
-Shared implementation agreement is not independent encoding evidence. Keep consumer integration tests, frozen expectations and native BLS interoperability checks; obtain independent encoding review before freezing v1.
+```sh
+npm run generate:typed-data-vectors
+npm run generate:bls-vectors
+npm run test:bls-native # Requires Rust and Cargo.
+```
 
-## Authorship
+The vectors contain public test seeds and keys. Never use them for funded accounts.
+Native BLS checks do not independently validate the typed-data encoding.
 
-**ichbindas is the original author of the typed-data specification, implementation, vector generator/corpus and BLS verification.** His original Git author identity and dates are retained in the imported history. Hein Dauven's corrections and extraction/packaging changes remain separate commits. See [PROVENANCE.md](PROVENANCE.md). The original Dusk Network MIT license is retained.
+## License
+
+[MIT](LICENSE). Originally developed by [ichbindas](https://github.com/ichbindas) in
+Dusk Connect. See [PROVENANCE.md](PROVENANCE.md) for authorship and import history.
