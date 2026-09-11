@@ -8,10 +8,27 @@
  * @example
  * ```ts
  * import { verifyTypedDataSignature } from "@dusk/typed-data/bls";
+ *
+ * const result = verifyTypedDataSignature(input, signatureHex, publicKeyHex, {
+ *   chainId: "dusk:1",
+ *   origin: "https://app.example",
+ * });
+ * if (!result.ok) throw new Error(result.code);
  * ```
  *
  * @module
  */
 
 export type { HashTypedDataInput } from "../typed-data/hash.js";
-export { BLS_SIGN_DST, TYPED_DATA_SIG_TAG, buildTypedDataSignedMessage, verifyTypedDataSignature, verifyBlsDigest } from "./sig.js";
+export type {
+  TypedDataVerificationCode,
+  TypedDataVerificationPolicy,
+  TypedDataVerificationResult,
+} from "./sig.js";
+export {
+  BLS_SIGN_DST,
+  TYPED_DATA_SIG_TAG,
+  buildTypedDataSignedMessage,
+  verifyTypedDataSignature,
+  verifyBlsDigest,
+} from "./sig.js";

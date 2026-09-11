@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { bls12_381 } from "@noble/curves/bls12-381";
 
-import { hashTypedData, type HashTypedDataInput } from "../typed-data/hash.js";
+import { hashTypedData, hashTypedDataHex, type HashTypedDataInput } from "../typed-data/hash.js";
 import {
   BLS_SIGN_DST,
   TYPED_DATA_SIG_TAG,
@@ -125,12 +125,112 @@ describe("./bls: buildTypedDataSignedMessage", () => {
   );
 });
 
+/** Policy matching the fixtures in this file. */
+const ACCEPTING_POLICY = { chainId: "dusk:1", origin: "https://app.example" } as const;
+/** Deliberate opt-out, for the cases that are only about the cryptography. */
+const ANY = { chainId: null, origin: null } as const;
+
 describe("./bls: verifyTypedDataSignature", () => {
+  it("requires a policy argument", () => {
+    const input = baseInput();
+    const { signatureHex } = signTypedDataInput(input, TEST_SK);
+
+    // @ts-expect-error policy is required: a caller must not be able to
+    // complete a verification without deciding chain and origin.
+    expect(() => verifyTypedDataSignature(input, signatureHex, TEST_PK_HEX)).toThrow();
+  });
+
+  it("reports the digest it verified, so a caller need not hash twice", () => {
+    const input = baseInput();
+    const { signatureHex } = signTypedDataInput(input, TEST_SK);
+
+    const result = verifyTypedDataSignature(input, signatureHex, TEST_PK_HEX, ACCEPTING_POLICY);
+
+    expect(result.ok).toBe(true);
+    expect(result.code).toBe("OK");
+    expect(result.digestHex).toBe(hashTypedDataHex(input));
+    expect(result.chainId).toBe("dusk:1");
+    expect(result.origin).toBe("https://app.example");
+  });
+
+  it("REJECTS a cryptographically valid signature for another chain", () => {
+    // Spec 12.3 step 4. The signature is genuine; the caller is verifying for
+    // a chain the signer did not sign for.
+    const input = baseInput();
+    const { signatureHex } = signTypedDataInput(input, TEST_SK);
+
+    const result = verifyTypedDataSignature(input, signatureHex, TEST_PK_HEX, {
+      chainId: "dusk:2",
+      origin: "https://app.example",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("E_CHAIN_MISMATCH");
+    expect(result.chainId).toBe("dusk:1");
+  });
+
+  it("REJECTS a cryptographically valid signature from another origin", () => {
+    // Spec 12.3 step 5.
+    const input = baseInput();
+    const { signatureHex } = signTypedDataInput(input, TEST_SK);
+
+    const result = verifyTypedDataSignature(input, signatureHex, TEST_PK_HEX, {
+      chainId: "dusk:1",
+      origin: "https://other.example",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("E_ORIGIN_MISMATCH");
+    expect(result.origin).toBe("https://app.example");
+  });
+
+  it("does not normalize the origin", () => {
+    // A trailing slash is a different origin. Normalizing here would let a
+    // verifier accept an origin the signer never displayed.
+    const input = baseInput();
+    const { signatureHex } = signTypedDataInput(input, TEST_SK);
+
+    const result = verifyTypedDataSignature(input, signatureHex, TEST_PK_HEX, {
+      chainId: "dusk:1",
+      origin: "https://app.example/",
+    });
+
+    expect(result.code).toBe("E_ORIGIN_MISMATCH");
+  });
+
+  it("accepts any chain or origin only when explicitly opted out with null", () => {
+    const input = baseInput();
+    const { signatureHex } = signTypedDataInput(input, TEST_SK);
+
+    expect(verifyTypedDataSignature(input, signatureHex, TEST_PK_HEX, ANY).ok).toBe(true);
+    expect(
+      verifyTypedDataSignature(input, signatureHex, TEST_PK_HEX, {
+        chainId: null,
+        origin: "https://app.example",
+      }).ok
+    ).toBe(true);
+  });
+
+  it("reports the signature failure before the policy failure", () => {
+    // Spec 12.3 checks the signature first. A forged payload must not be
+    // reported as a mere policy mismatch.
+    const input = baseInput();
+    const { signatureHex } = signTypedDataInput(input, TEST_SK);
+    const tampered = baseInput({ origin: "https://evil.example" });
+
+    const result = verifyTypedDataSignature(tampered, signatureHex, TEST_PK_HEX, {
+      chainId: "dusk:2",
+      origin: "https://app.example",
+    });
+
+    expect(result.code).toBe("E_SIG_INVALID");
+  });
+
   it("verifies a known-good tagged signature (round trip)", () => {
     const input = baseInput();
     const { signatureHex } = signTypedDataInput(input, TEST_SK);
 
-    expect(verifyTypedDataSignature(input, signatureHex, TEST_PK_HEX)).toBe(true);
+    expect(verifyTypedDataSignature(input, signatureHex, TEST_PK_HEX, ACCEPTING_POLICY).ok).toBe(true);
   });
 
   // The security property this module exists to provide: a raw-digest signing
@@ -145,7 +245,7 @@ describe("./bls: verifyTypedDataSignature", () => {
     expect(verifyBlsDigest(`0x${bytesToHex(digest)}`, bareSignatureHex, TEST_PK_HEX)).toBe(true);
 
     // But it must not satisfy the typed-data verifier.
-    expect(verifyTypedDataSignature(input, bareSignatureHex, TEST_PK_HEX)).toBe(false);
+    expect(verifyTypedDataSignature(input, bareSignatureHex, TEST_PK_HEX, ANY).ok).toBe(false);
   });
 
   it("fails when the message value is tampered with", () => {
@@ -153,7 +253,7 @@ describe("./bls: verifyTypedDataSignature", () => {
     const { signatureHex } = signTypedDataInput(input, TEST_SK);
 
     const tampered = baseInput({ message: { text: "goodbye" } });
-    expect(verifyTypedDataSignature(tampered, signatureHex, TEST_PK_HEX)).toBe(false);
+    expect(verifyTypedDataSignature(tampered, signatureHex, TEST_PK_HEX, ANY).ok).toBe(false);
   });
 
   it("fails when the domain is tampered with", () => {
@@ -161,7 +261,7 @@ describe("./bls: verifyTypedDataSignature", () => {
     const { signatureHex } = signTypedDataInput(input, TEST_SK);
 
     const tampered = baseInput({ domain: { ...domain, version: "2" } });
-    expect(verifyTypedDataSignature(tampered, signatureHex, TEST_PK_HEX)).toBe(false);
+    expect(verifyTypedDataSignature(tampered, signatureHex, TEST_PK_HEX, ANY).ok).toBe(false);
   });
 
   it("fails when the origin is tampered with", () => {
@@ -169,7 +269,7 @@ describe("./bls: verifyTypedDataSignature", () => {
     const { signatureHex } = signTypedDataInput(input, TEST_SK);
 
     const tampered = baseInput({ origin: "https://evil.example" });
-    expect(verifyTypedDataSignature(tampered, signatureHex, TEST_PK_HEX)).toBe(false);
+    expect(verifyTypedDataSignature(tampered, signatureHex, TEST_PK_HEX, ANY).ok).toBe(false);
   });
 
   it("fails when the signature is tampered with", () => {
@@ -185,7 +285,7 @@ describe("./bls: verifyTypedDataSignature", () => {
     bytes[bytes.length - 1] ^= 0xff;
     const tamperedSignatureHex = `0x${bytesToHex(bytes)}`;
 
-    expect(verifyTypedDataSignature(input, tamperedSignatureHex, TEST_PK_HEX)).toBe(false);
+    expect(verifyTypedDataSignature(input, tamperedSignatureHex, TEST_PK_HEX, ANY).ok).toBe(false);
   });
 
   it("fails (does not throw) when the signature bytes are correctly sized but not a valid point", () => {
@@ -196,7 +296,7 @@ describe("./bls: verifyTypedDataSignature", () => {
     bytes[0] ^= 0xff; // corrupts the compression/sign flag bits
     const invalidPointSignatureHex = `0x${bytesToHex(bytes)}`;
 
-    expect(verifyTypedDataSignature(input, invalidPointSignatureHex, TEST_PK_HEX)).toBe(false);
+    expect(verifyTypedDataSignature(input, invalidPointSignatureHex, TEST_PK_HEX, ANY).ok).toBe(false);
   });
 
   it("fails when verified against the wrong public key", () => {
@@ -208,25 +308,25 @@ describe("./bls: verifyTypedDataSignature", () => {
       bls12_381.G2.ProjectivePoint.BASE.multiply(otherSk).toRawBytes(true)
     )}`;
 
-    expect(verifyTypedDataSignature(input, signatureHex, otherPkHex)).toBe(false);
+    expect(verifyTypedDataSignature(input, signatureHex, otherPkHex, ANY).ok).toBe(false);
   });
 
   it("throws on an invalid typed-data payload (spec section 10)", () => {
     const input = baseInput({ primaryType: "DuskTypedDataDomain" });
-    expect(() => verifyTypedDataSignature(input, `0x${"00".repeat(48)}`, TEST_PK_HEX)).toThrow();
+    expect(() => verifyTypedDataSignature(input, `0x${"00".repeat(48)}`, TEST_PK_HEX, ANY)).toThrow();
   });
 
   it("throws on a malformed signatureHex", () => {
     const input = baseInput();
-    expect(() => verifyTypedDataSignature(input, "not-hex", TEST_PK_HEX)).toThrow();
-    expect(() => verifyTypedDataSignature(input, `0x${"00".repeat(47)}`, TEST_PK_HEX)).toThrow();
+    expect(() => verifyTypedDataSignature(input, "not-hex", TEST_PK_HEX, ANY)).toThrow();
+    expect(() => verifyTypedDataSignature(input, `0x${"00".repeat(47)}`, TEST_PK_HEX, ANY)).toThrow();
   });
 
   it("throws on a malformed publicKeyHex", () => {
     const input = baseInput();
     const { signatureHex } = signTypedDataInput(input, TEST_SK);
-    expect(() => verifyTypedDataSignature(input, signatureHex, "not-hex")).toThrow();
-    expect(() => verifyTypedDataSignature(input, signatureHex, `0x${"00".repeat(95)}`)).toThrow();
+    expect(() => verifyTypedDataSignature(input, signatureHex, "not-hex", ANY)).toThrow();
+    expect(() => verifyTypedDataSignature(input, signatureHex, `0x${"00".repeat(95)}`, ANY)).toThrow();
   });
 });
 

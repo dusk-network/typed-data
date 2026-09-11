@@ -165,13 +165,19 @@ describe("bls vector corpus", () => {
     it.each(typedDataVectors)(
       "%s verifies via verifyTypedDataSignature",
       (_name, vector) => {
-        const verified = verifyTypedDataSignature(
+        const result = verifyTypedDataSignature(
           vector.input.typedData!,
           vector.expected.signatureG1Hex,
-          vector.expected.publicKeyG2Hex
+          vector.expected.publicKeyG2Hex,
+          {
+            chainId: vector.input.typedData!.domain.chainId,
+            origin: vector.input.typedData!.origin,
+          }
         );
 
-        expect(verified).toBe(true);
+        expect(result.ok).toBe(true);
+        expect(result.code).toBe("OK");
+        expect(result.digestHex).toBe(vector.input.digestHex);
       }
     );
 
@@ -183,13 +189,15 @@ describe("bls vector corpus", () => {
         };
         tampered.domain.name = `${tampered.domain.name ?? ""} (tampered)`;
 
-        const verified = verifyTypedDataSignature(
+        const result = verifyTypedDataSignature(
           tampered as HashTypedDataInput,
           vector.expected.signatureG1Hex,
-          vector.expected.publicKeyG2Hex
+          vector.expected.publicKeyG2Hex,
+          { chainId: null, origin: null }
         );
 
-        expect(verified).toBe(false);
+        expect(result.ok).toBe(false);
+        expect(result.code).toBe("E_SIG_INVALID");
       }
     );
   });

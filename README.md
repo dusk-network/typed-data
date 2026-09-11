@@ -8,8 +8,24 @@ import { verifyTypedDataSignature } from "@dusk/typed-data/bls";
 
 checkPolicyLimits(input); // Optional signer policy, never part of the digest.
 const digest = hashTypedDataHex(input);
-const valid = verifyTypedDataSignature(input, signatureHex, publicKeyHex);
+const result = verifyTypedDataSignature(input, signatureHex, publicKeyHex, {
+  chainId: "dusk:1",
+  origin: "https://app.example",
+});
+
+if (!result.ok) {
+  // "E_SIG_INVALID" | "E_CHAIN_MISMATCH" | "E_ORIGIN_MISMATCH"
+  throw new Error(`signature rejected: ${result.code}`);
+}
+
+result.digestHex; // the digest that was verified, no need to hash again
 ```
+
+The verification policy is required. A valid signature for another chain, or from
+another site, is still a valid signature, so a verifier that checks only the
+cryptography has not finished the job the specification describes. Pass `null`
+for a field to accept any value; it is deliberately explicit rather than an
+omitted argument, so that opting out is visible where it happens.
 
 `input` includes `domain`, `types`, `primaryType`, `message` and `origin`; see the [normative specification](docs/typed-data-v1.md). `validateTypedDataParams` performs initial structural checks; hashing completes value validation. Invalid typed data throws `TypedDataError` with a stable `E_*` code. Application/RPC error mapping belongs to the consumer.
 
