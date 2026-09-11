@@ -2,6 +2,10 @@
   "name": "@dusk/typed-data",
   "version": "0.1.0-next.0",
   "description": "Dusk typed-data validation, hashing and tagged BLS verification.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dusk-network/typed-data.git"
+  },
   "author": "ichbindas <54631150+ichbindas@users.noreply.github.com>",
   "contributors": ["Hein Dauven <heindauven@gmail.com>"],
   "license": "MIT",

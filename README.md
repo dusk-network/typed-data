@@ -1,6 +1,6 @@
 # @dusk/typed-data
 
-Shared Dusk typed-data validation, SHA-256 hashing and tagged BLS verification for Wallet, Connect and other verifiers. **The v1 specification remains draft, not frozen.** This is an unpublished extraction candidate; repository ownership and registry publication are separate release steps.
+Shared Dusk typed-data validation, SHA-256 hashing and tagged BLS verification for Wallet, Connect and other verifiers. **The v1 specification remains draft, not frozen.** Source is hosted at [dusk-network/typed-data](https://github.com/dusk-network/typed-data). The npm/JSR package is not published; registry publication and consumer migration remain separate steps.
 
 ```ts
 import { checkPolicyLimits, hashTypedDataHex } from "@dusk/typed-data";
