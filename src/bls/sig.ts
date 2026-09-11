@@ -14,8 +14,10 @@
  */
 import { bls12_381 } from "@noble/curves/bls12-381";
 
+import { bytesToHex } from "@noble/hashes/utils";
+
 import { hexToBytes } from "../bytes.js";
-import { hashTypedData, type HashTypedDataInput } from "../typed-data/hash.js";
+import { hashTypedDataWithContext, type HashTypedDataInput } from "../typed-data/hash.js";
 
 /**
  * Standard Dusk BLS12-381 short-signature domain separation tag
@@ -84,40 +86,124 @@ function safeVerifyShortSignature(
 }
 
 /**
+ * What a verifier expects of the signature, beyond the cryptography.
+ *
+ * Spec 12.3 makes five demands of a verifier. Three of them are mechanical -
+ * recompute the digest, rebuild the tagged message, check the signature. The
+ * other two are policy the library cannot know: which chain the signature is
+ * being accepted for, and which origin is allowed to have produced it.
+ *
+ * Both fields are required so that a caller cannot complete a verification
+ * without deciding. `null` means "accept any", and is the explicit way to opt
+ * out: it is visible in review and greppable in a codebase, where an omitted
+ * optional argument is neither.
+ */
+export type TypedDataVerificationPolicy = {
+  /**
+   * CAIP-2 chain id the signature is accepted for, compared exactly against
+   * `input.domain.chainId`. `null` accepts any chain - only correct when the
+   * caller has already established the chain by other means.
+   */
+  chainId: string | null;
+  /**
+   * Origin allowed to have produced the signature, compared exactly against
+   * `input.origin`. No normalization is applied: a trailing slash, a differing
+   * case or an added port is a different origin. `null` accepts any origin.
+   */
+  origin: string | null;
+};
+
+/** Why a verification failed, or `OK` when it did not. */
+export type TypedDataVerificationCode =
+  | "OK"
+  | "E_SIG_INVALID"
+  | "E_CHAIN_MISMATCH"
+  | "E_ORIGIN_MISMATCH";
+
+/**
+ * Outcome of `verifyTypedDataSignature`.
+ *
+ * Carries the digest it verified, so a caller that wants to log, display or
+ * store it does not have to hash the payload a second time, and the chain and
+ * origin that were compared, so a rejection can be reported precisely.
+ */
+export type TypedDataVerificationResult = {
+  /** True only when the signature verified AND the policy was satisfied. */
+  ok: boolean;
+  code: TypedDataVerificationCode;
+  /** Digest recomputed from `input` (spec 9). Present whether or not `ok`. */
+  digestHex: `0x${string}`;
+  /** Chain id used in the digest and compared against the policy. */
+  chainId: string;
+  /** Origin used in the digest and compared against the policy. */
+  origin: string;
+};
+
+/**
  * Verify a Dusk typed-data v1 signature (spec 12.3).
  *
- * Recomputes the digest from `input` using the typed-data hashing
- * implementation (`../typed-data/hash.js`), builds `SIG_TAG || digest`
- * (spec 12.1), and verifies the BLS short signature over that tagged message
- * under the standard DST.
+ * Performs all five steps the spec requires: recomputes the digest from
+ * `input`, rebuilds `SIG_TAG || digest` (spec 12.1), verifies the BLS short
+ * signature over that tagged message under the standard DST, then checks the
+ * chain id and the origin against `policy`.
+ *
+ * `policy` is required. A verifier that checks only the cryptography has not
+ * verified a typed-data signature - it has established that some key signed
+ * some payload, which says nothing about whether this chain and this origin
+ * were meant to be involved. Passing `{ chainId: null, origin: null }` opts
+ * out deliberately and leaves a trace in the code that it was a choice.
  *
  * Error convention: throws on malformed *input shape* - an invalid typed-data
  * payload (rejected per spec section 10, surfaced as `TypedDataError`), or a
  * `signatureHex` / `publicKeyHex` that is not well-formed hex of the expected
- * length. Returns `false` (not a throw) for anything that is shaped correctly
- * but does not verify: a signature that fails cryptographic verification, a
- * correctly-sized but invalid curve point encoding (attacker-controlled
- * garbage bytes), or - the security property this module exists to provide -
- * a signature that was produced over the bare digest instead of the tagged
- * message. A caller checking an untrusted signature never needs its own
+ * length. Returns a result with `ok: false` (never throws) for anything that is
+ * shaped correctly but does not verify: a signature that fails cryptographic
+ * verification, a correctly-sized but invalid curve point encoding
+ * (attacker-controlled garbage bytes), a signature produced over the bare
+ * digest instead of the tagged message, or a chain or origin the policy does
+ * not allow. A caller checking an untrusted signature never needs its own
  * try/catch around the "does this verify" question, only around the "is this
  * even shaped like typed-data / hex" question.
  *
  * @param input typed-data payload, spec section 3 (same shape `hashTypedData` accepts)
  * @param signatureHex `0x`-hex, 48-byte compressed G1 signature
  * @param publicKeyHex `0x`-hex, 96-byte compressed G2 public key
+ * @param policy expected chain id and origin; `null` on a field accepts any
  */
 export function verifyTypedDataSignature(
   input: HashTypedDataInput,
   signatureHex: string,
-  publicKeyHex: string
-): boolean {
-  const { digest } = hashTypedData(input);
+  publicKeyHex: string,
+  policy: TypedDataVerificationPolicy
+): TypedDataVerificationResult {
+  if (policy === null || typeof policy !== "object") {
+    throw new Error(
+      "policy is required: pass { chainId, origin }, using null on a field to accept any value"
+    );
+  }
+
+  // Capture expectations before hashing can invoke caller-provided accessors.
+  const { chainId: expectedChainId, origin: expectedOrigin } = policy;
+  const { digest, chainId, origin } = hashTypedDataWithContext(input);
+  const digestHex = `0x${bytesToHex(digest)}` as `0x${string}`;
+
   const signedMessage = buildTypedDataSignedMessage(digest);
   const signatureBytes = decodeFixedHex(signatureHex, 48, "signatureHex");
   const publicKeyBytes = decodeFixedHex(publicKeyHex, 96, "publicKeyHex");
 
-  return safeVerifyShortSignature(signatureBytes, signedMessage, publicKeyBytes);
+  const base = { digestHex, chainId, origin };
+
+  // Spec 12.3 order: signature first, then chain, then origin.
+  if (!safeVerifyShortSignature(signatureBytes, signedMessage, publicKeyBytes)) {
+    return { ...base, ok: false, code: "E_SIG_INVALID" };
+  }
+  if (expectedChainId !== null && expectedChainId !== chainId) {
+    return { ...base, ok: false, code: "E_CHAIN_MISMATCH" };
+  }
+  if (expectedOrigin !== null && expectedOrigin !== origin) {
+    return { ...base, ok: false, code: "E_ORIGIN_MISMATCH" };
+  }
+  return { ...base, ok: true, code: "OK" };
 }
 
 /**

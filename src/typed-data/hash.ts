@@ -224,8 +224,8 @@ function hexByteLength(value: string): number {
 }
 
 export function hashTypedData(input: HashTypedDataInput): { digest: Uint8Array } {
-  validateTypedDataParams(input);
-  return { digest: typedDigest(input) };
+  const { digest } = hashTypedDataWithContext(input);
+  return { digest };
 }
 
 export function hashTypedDataHex(input: HashTypedDataInput): `0x${string}` {
@@ -252,7 +252,7 @@ export function hashTypedDataDebug(input: HashTypedDataInput): HashTypedDataDebu
   const types = input.types;
   const domainValues = domainMessage(input.domain);
 
-  // Compute the digest stages in the same order as `typedDigest`, so that an
+  // Compute the digest stages in the same order as `hashTypedDataWithContext`, so that an
   // input violating several rules at once reports the same error code from
   // both entry points (spec section 10, "Reporting order").
   const domainSeparator = structHash(DOMAIN_TYPE, domainValues, types);
@@ -277,20 +277,27 @@ export function hashTypedDataDebug(input: HashTypedDataInput): HashTypedDataDebu
   };
 }
 
-function typedDigest(input: HashTypedDataInput): Uint8Array {
+/** @internal Returns the context used in the digest, not a later read of the caller's object. */
+export function hashTypedDataWithContext(input: HashTypedDataInput) {
+  validateTypedDataParams(input);
   const types = input.types;
   const domainValues = domainMessage(input.domain);
   const domainSeparator = structHash(DOMAIN_TYPE, domainValues, types);
-  const originBind = originBindHash(input.origin);
+  const origin = input.origin;
+  const originBind = originBindHash(origin);
   const structHashPrimary = structHash(input.primaryType, input.message, types);
-  return sha256(concat(PREAMBLE, domainSeparator, originBind, structHashPrimary));
+  const digest = sha256(concat(PREAMBLE, domainSeparator, originBind, structHashPrimary));
+  return { digest, chainId: domainValues.chainId, origin };
 }
 
 function originBindHash(origin: string): Uint8Array {
+  if (typeof origin !== "string") {
+    fail("E_ORIGIN_TYPE", "origin must be a string");
+  }
   return sha256(concat(ORIGIN_TAG, sha256(utf8(origin))));
 }
 
-function domainMessage(domain: HashTypedDataInput["domain"]): Record<string, unknown> {
+function domainMessage(domain: HashTypedDataInput["domain"]): Required<HashTypedDataInput["domain"]> {
   if (!isPlainObject(domain)) {
     fail("E_PARAMS_SHAPE", "domain must be an object");
   }
@@ -510,9 +517,10 @@ function structHash(
     seen.add(f.name);
     parts.push(encodeValue(f.type, values[f.name], types));
   }
-  for (const k of Object.keys(values)) {
-    if (!seen.has(k)) {
-      fail("E_FIELD_EXTRA", `unexpected field ${typeName}.${k}`);
+  // Include non-enumerable and symbol keys in the own-property check (spec 6.3).
+  for (const k of Reflect.ownKeys(values)) {
+    if (typeof k !== "string" || !seen.has(k)) {
+      fail("E_FIELD_EXTRA", `unexpected field ${typeName}.${String(k)}`);
     }
   }
   return sha256(concat(...parts));

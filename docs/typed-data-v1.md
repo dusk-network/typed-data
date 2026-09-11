@@ -136,9 +136,9 @@ budget as a validity rule. See §11.
 | `uint8` | see §5.2 | 1-byte big-endian |
 | `uint32` | see §5.2 | 4-byte big-endian |
 | `uint64` | see §5.2 | 8-byte big-endian |
-| `bytes32` | `0x`-hex string decoding to **exactly** 32 bytes | the 32 raw bytes |
+| `bytes32` | hex string decoding to **exactly** 32 bytes, `0x` prefix optional | the 32 raw bytes |
 | `string` | string only | `sha256(utf8(v))` |
-| `bytes` | `0x`-hex string, any length including empty | `sha256(rawBytes)` |
+| `bytes` | hex string, any length including empty, `0x` prefix optional | `sha256(rawBytes)` |
 
 Hex decoding: an optional `0x` or `0X` prefix MAY be present; the remainder MUST
 have even length and contain only `[0-9a-fA-F]`. `bytes32` MUST NOT be
@@ -234,6 +234,16 @@ fields in declaration order.
 Field presence MUST be tested as an **own** property of `v` — never via prototype
 chain lookup (`in` in JavaScript, `hasattr` on a class instance, etc.). Every field
 declared by `S` MUST be present; any key of `v` not declared by `S` MUST be rejected.
+
+Both rules use the same notion of **own**: every own property, whether or not it
+is enumerable. This includes JavaScript symbol keys, which cannot be declared by
+the identifier grammar and MUST be rejected with `E_FIELD_EXTRA`.
+An implementation that tests presence over all own properties but
+collects extra keys from the enumerable ones only would treat a non-enumerable
+own property as present while never rejecting it as undeclared. Values that
+arrive by parsing JSON have only enumerable own properties, so the distinction
+is unreachable across a transport boundary and reachable only for a caller
+constructing the object in process.
 
 ---
 
