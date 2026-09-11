@@ -11,7 +11,10 @@
 
 ### Changed
 
+- **Breaking:** `verifyTypedDataSignature` now requires a `{ chainId, origin }`
+  policy and returns a structured result instead of a boolean [wallet#22].
 - Pinned typed-data signatures to the V2 BLS scheme regardless of chain height [wallet#22].
+- Applied the extra-key rule to every own property, matching the presence test [wallet#22].
 - Scoped typed-data validation to reachable types and made error codes consistent
   across hashing entry points [wallet#22].
 - Pinned `@noble/curves` and `@noble/hashes` to exact versions.
