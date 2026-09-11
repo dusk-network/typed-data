@@ -26,8 +26,8 @@
   "files": ["dist", "vectors", "docs/typed-data-v1.md", "README.md", "CHANGELOG.md", "PROVENANCE.md", "LICENSE"],
   "publishConfig": { "access": "public" },
   "dependencies": {
-    "@noble/curves": "^1.9.7",
-    "@noble/hashes": "^1.8.0"
+    "@noble/curves": "1.9.7",
+    "@noble/hashes": "1.8.0"
   },
   "scripts": {
     "clean": "rm -rf dist",
