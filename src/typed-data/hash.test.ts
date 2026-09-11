@@ -61,7 +61,9 @@ describe("typed-data hash v1", () => {
     "rejects frozen vector %s",
     name => {
       const vector = loadVector(`reject/${name}`);
-      expectCode(() => hashTypedData(vector.input), vector.error);
+      for (const hash of [hashTypedData, hashTypedDataHex, hashTypedDataDebug]) {
+        expectCode(() => hash(vector.input), vector.error);
+      }
     }
   );
 
@@ -138,6 +140,19 @@ describe("uint64 JSON", () => {
 });
 
 describe("validation error codes (spec section 10)", () => {
+  it.each([
+    ["domain", { ...domain, verifyingContract: "0x11" }, origin, "E_BYTES32_LENGTH"],
+    ["origin", domain, "\ud800", "E_UTF8"],
+  ] as const)("reports the %s error before a malformed message type from every hash entrypoint", (_stage, domain, origin, code) => {
+    const input = {
+      domain, origin, primaryType: "S", message: {},
+      types: { ...domainTypes, S: [{ name: "value", type: "Missing[]" }] },
+    };
+    for (const hash of [hashTypedData, hashTypedDataHex, hashTypedDataDebug]) {
+      expectCode(() => hash(input), code);
+    }
+  });
+
   it("rejects an empty types map before hashing", () => {
     const vector = loadVector("sign_in_basic.json");
     expectCode(() => validateTypedDataParams({ ...vector.input, types: {} }), "E_PRIMARY_MISSING");

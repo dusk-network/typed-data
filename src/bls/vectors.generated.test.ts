@@ -1,8 +1,6 @@
 /**
  * Regeneration guard + verification conformance for the BLS vector corpus.
  *
- * Place at: connect/src/bls/vectors.generated.test.ts
- *
  * Mirrors src/typed-data/vectors.generated.test.ts:
  *  - the committed JSON must be byte-identical to what the generator produces,
  *    so derivation or signing cannot change while stale vectors stay committed;

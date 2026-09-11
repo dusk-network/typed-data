@@ -17,7 +17,7 @@ The root exports hashing, debug intermediates, types, validation and the separat
 
 Wallets must supply the trusted requesting origin, enforce the active chain and permissions, obtain approval, and recheck signing context. Verifier applications must independently enforce their expected origin/chain and application-specific authorization/replay rules. Cryptographic verification alone is not authorization.
 
-The root does not load the BLS curve module. Existing Noble dependencies are retained; there is no Wallet, Connect, w3sper, DOM-rendering or Node-runtime dependency. ESM JavaScript and TypeScript declarations are built for ES2022; JSR uses the TypeScript entrypoints.
+The root does not load the BLS curve module. Noble dependencies are pinned to exact versions; there is no Wallet, Connect, w3sper, DOM-rendering or Node-runtime dependency. ESM JavaScript and TypeScript declarations are built for ES2022; JSR uses the TypeScript entrypoints.
 
 ## Tests and vectors
 
@@ -25,10 +25,14 @@ The root does not load the BLS curve module. Existing Noble dependencies are ret
 npm ci
 npm run ci
 npm run generate:typed-data-vectors
+npm run generate:bls-vectors
+npm run test:bls-native # Requires Rust/Cargo; compares all frozen BLS outputs.
 npm pack
 ```
 
-The 13 accept and 22 reject vectors under `vectors/typed-data-v1/` retain their pre-extraction bytes. Regeneration must not silently revise them. npm consumers can resolve fixture files through `@dusk/typed-data/vectors/<name>.json` and the specification through `@dusk/typed-data/spec`. The generator remains independently pinned to the signature tag.
+The 14 accept and 22 reject vectors under `vectors/typed-data-v1/` include the new unreachable-type case; all 35 pre-extraction vectors retain their exact bytes. Regeneration must not silently revise them. npm consumers can resolve fixture files through `@dusk/typed-data/vectors/<name>.json` and the specification through `@dusk/typed-data/spec`. The generator remains independently pinned to the signature tag.
+
+The five vectors under `vectors/bls-v1/` pin public test-seed key derivation, little-endian scalar encoding, tagged messages and G1 signatures under the Dusk V2 DST. `npm run test:bls-native` compares every expected byte with the locked Rust emitter; it never rewrites fixtures. The seeds/scalars are public test data and must never be funded. Rust derivation is transcribed from wallet-core, and the emitter consumes fixed digests: this is independent BLS interoperability evidence, not an independent typed-data encoder or a whole-wallet audit.
 
 Shared implementation agreement is not independent encoding evidence. Keep consumer integration tests, frozen expectations and native BLS interoperability checks; obtain independent encoding review before freezing v1.
 

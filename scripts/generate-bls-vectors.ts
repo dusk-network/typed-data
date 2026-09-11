@@ -7,12 +7,12 @@
  *
  * WHY THIS EXISTS
  * ---------------
- * Every existing BLS test in both repos is JS-signs / JS-verifies. A round-trip
- * is structurally blind to a wrong domain-separation tag or a wrong group
- * assignment: sign and verify with the same wrong parameter and the test still
- * passes, while the Rust verifier rejects every signature the wallet emits.
- * These vectors are the only artifact that can catch that, because their
- * expected bytes are fixed independently of the code under test.
+ * JS-signs / JS-verifies round trips are structurally blind to a wrong
+ * domain-separation tag or group assignment: sign and verify with the same
+ * wrong parameter and the test still passes, while the Rust verifier rejects
+ * the signature. These frozen vectors complement native wallet E2E evidence
+ * and the locked Rust emitter check; their expected bytes do not come from
+ * a round trip executed by the code under test.
  *
  * ENCODINGS ARE NORMATIVE, NOT INHERITED
  * --------------------------------------
@@ -42,9 +42,9 @@
  * Rust implementation - secret key, public key, signed message and signature -
  * using the emitter in `tools/rust-vector-emitter/`, built against
  * `bls12_381-bls` 0.6.0 (the version rusk's workspace pins) with derivation
- * transcribed from `wallet-core`. Re-run it when the corpus changes; it is the
- * only thing that makes these vectors cross-language rather than JS agreeing
- * with itself around a single anchor point.
+ * transcribed from `wallet-core`. `npm run test:bls-native` compares all frozen
+ * outputs with that emitter. Re-run it when the corpus changes; a JS-only
+ * regeneration check around one derivation anchor is not sufficient.
  *
  * Usage:
  *   node scripts/generate-bls-vectors.ts

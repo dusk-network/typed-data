@@ -93,6 +93,7 @@ describe("./bls: TYPED_DATA_SIG_TAG (spec 12.1)", () => {
     expect(Object.keys(blsModule).sort()).toEqual([
       "BLS_SIGN_DST",
       "TYPED_DATA_SIG_TAG",
+      "buildTypedDataSignedMessage",
       "verifyBlsDigest",
       "verifyTypedDataSignature",
     ]);
