@@ -510,7 +510,11 @@ function structHash(
     seen.add(f.name);
     parts.push(encodeValue(f.type, values[f.name], types));
   }
-  for (const k of Object.keys(values)) {
+  // getOwnPropertyNames, not Object.keys: presence is tested with Object.hasOwn
+  // above, which sees non-enumerable own properties too. Using the enumerable-only
+  // list here would let a non-enumerable own property escape the extra-key rule
+  // while still counting as present (spec 6.3).
+  for (const k of Object.getOwnPropertyNames(values)) {
     if (!seen.has(k)) {
       fail("E_FIELD_EXTRA", `unexpected field ${typeName}.${k}`);
     }
