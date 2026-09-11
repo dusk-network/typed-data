@@ -17,7 +17,7 @@ import { bls12_381 } from "@noble/curves/bls12-381";
 import { bytesToHex } from "@noble/hashes/utils";
 
 import { hexToBytes } from "../bytes.js";
-import { hashTypedData, type HashTypedDataInput } from "../typed-data/hash.js";
+import { hashTypedDataWithContext, type HashTypedDataInput } from "../typed-data/hash.js";
 
 /**
  * Standard Dusk BLS12-381 short-signature domain separation tag
@@ -133,9 +133,9 @@ export type TypedDataVerificationResult = {
   code: TypedDataVerificationCode;
   /** Digest recomputed from `input` (spec 9). Present whether or not `ok`. */
   digestHex: `0x${string}`;
-  /** `input.domain.chainId`, as compared against the policy. */
+  /** Chain id used in the digest and compared against the policy. */
   chainId: string;
-  /** `input.origin`, as compared against the policy. */
+  /** Origin used in the digest and compared against the policy. */
   origin: string;
 };
 
@@ -182,10 +182,10 @@ export function verifyTypedDataSignature(
     );
   }
 
-  const { digest } = hashTypedData(input);
+  // Capture expectations before hashing can invoke caller-provided accessors.
+  const { chainId: expectedChainId, origin: expectedOrigin } = policy;
+  const { digest, chainId, origin } = hashTypedDataWithContext(input);
   const digestHex = `0x${bytesToHex(digest)}` as `0x${string}`;
-  const chainId = input.domain.chainId;
-  const origin = input.origin;
 
   const signedMessage = buildTypedDataSignedMessage(digest);
   const signatureBytes = decodeFixedHex(signatureHex, 48, "signatureHex");
@@ -197,10 +197,10 @@ export function verifyTypedDataSignature(
   if (!safeVerifyShortSignature(signatureBytes, signedMessage, publicKeyBytes)) {
     return { ...base, ok: false, code: "E_SIG_INVALID" };
   }
-  if (policy.chainId !== null && policy.chainId !== chainId) {
+  if (expectedChainId !== null && expectedChainId !== chainId) {
     return { ...base, ok: false, code: "E_CHAIN_MISMATCH" };
   }
-  if (policy.origin !== null && policy.origin !== origin) {
+  if (expectedOrigin !== null && expectedOrigin !== origin) {
     return { ...base, ok: false, code: "E_ORIGIN_MISMATCH" };
   }
   return { ...base, ok: true, code: "OK" };

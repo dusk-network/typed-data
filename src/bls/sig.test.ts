@@ -153,6 +153,55 @@ describe("./bls: verifyTypedDataSignature", () => {
     expect(result.origin).toBe("https://app.example");
   });
 
+  it.each([
+    ["chainId", "dusk:2", "E_CHAIN_MISMATCH"],
+    ["origin", "https://other.example", "E_ORIGIN_MISMATCH"],
+  ] as const)("checks the hashed %s even if a message getter changes the input", (field, expected, code) => {
+    const input = baseInput();
+    const { signatureHex } = signTypedDataInput(input, TEST_SK);
+    const digestHex = hashTypedDataHex(input);
+    Object.defineProperty(input.message, "text", {
+      get() {
+        if (field === "chainId") input.domain = { ...input.domain, chainId: expected };
+        else input.origin = expected;
+        return "hello";
+      },
+    });
+
+    const result = verifyTypedDataSignature(input, signatureHex, TEST_PK_HEX, {
+      ...ACCEPTING_POLICY, [field]: expected,
+    });
+    expect(field === "chainId" ? input.domain.chainId : input.origin).toBe(expected);
+    expect(result).toEqual({ ...ACCEPTING_POLICY, digestHex, ok: false, code });
+  });
+
+  it("captures the expected policy before hashing can invoke a message getter", () => {
+    const input = baseInput();
+    const { signatureHex } = signTypedDataInput(input, TEST_SK);
+    const policy = { chainId: "dusk:2", origin: "https://other.example" };
+    Object.defineProperty(input.message, "text", {
+      get() {
+        Object.assign(policy, ACCEPTING_POLICY);
+        return "hello";
+      },
+    });
+    const result = verifyTypedDataSignature(input, signatureHex, TEST_PK_HEX, policy);
+    expect(policy).toEqual(ACCEPTING_POLICY);
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("E_CHAIN_MISMATCH");
+  });
+
+  it("accepts stable accessors and non-enumerable domain fields", () => {
+    const input = baseInput({ domain: { ...domain } });
+    const { signatureHex } = signTypedDataInput(input, TEST_SK);
+    Object.defineProperty(input.domain, "chainId", { enumerable: false });
+    Object.defineProperty(input.message, "text", { get: () => "hello" });
+    expect(Object.keys(input.domain)).not.toContain("chainId");
+    expect(verifyTypedDataSignature(input, signatureHex, TEST_PK_HEX, ACCEPTING_POLICY)).toMatchObject({
+      ...ACCEPTING_POLICY, ok: true, code: "OK",
+    });
+  });
+
   it("REJECTS a cryptographically valid signature for another chain", () => {
     // Spec 12.3 step 4. The signature is genuine; the caller is verifying for
     // a chain the signer did not sign for.
@@ -279,8 +328,8 @@ describe("./bls: verifyTypedDataSignature", () => {
     // Flip a byte deep in the point encoding (not the leading flag bits) so
     // this stays a "wrong signature" case; flipping the flag byte instead
     // would produce a malformed point encoding, which is covered separately
-    // below (`verifyTypedDataSignature` returns false either way, never
-    // throws, for a correctly-*sized* but bad signature).
+    // below (verification returns `ok: false` either way, never throws,
+    // for a correctly-sized but bad signature).
     const bytes = Uint8Array.from(Buffer.from(signatureHex.slice(2), "hex"));
     bytes[bytes.length - 1] ^= 0xff;
     const tamperedSignatureHex = `0x${bytesToHex(bytes)}`;

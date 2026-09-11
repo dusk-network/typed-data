@@ -158,6 +158,39 @@ describe("validation error codes (spec section 10)", () => {
     expectCode(() => validateTypedDataParams({ ...vector.input, types: {} }), "E_PRIMARY_MISSING");
   });
 
+  it.each([
+    ["non-enumerable string", "hidden", false],
+    ["enumerable symbol", Symbol("hidden"), true],
+    ["non-enumerable symbol", Symbol("hidden"), false],
+  ] as const)("E_FIELD_EXTRA: rejects an undeclared %s property", (_label, key, enumerable) => {
+    const vector = loadVector("sign_in_basic.json");
+    Object.defineProperty(vector.input.message, key, { value: "extra", enumerable });
+    for (const hash of [hashTypedData, hashTypedDataHex, hashTypedDataDebug]) {
+      expectCode(() => hash(vector.input), "E_FIELD_EXTRA");
+    }
+  });
+
+  it("accepts a declared non-enumerable own field", () => {
+    const vector = loadVector("sign_in_basic.json");
+    const plain = loadVector("sign_in_basic.json");
+    Object.defineProperty(vector.input.message, "address", { enumerable: false });
+    expect(hashTypedDataHex(vector.input)).toBe(vector.digestHex);
+    for (const hash of [hashTypedData, hashTypedDataDebug]) {
+      expect(hash(vector.input)).toEqual(hash(plain.input));
+    }
+  });
+
+  it("rejects an origin accessor that stops returning a string", () => {
+    for (const hash of [hashTypedData, hashTypedDataHex, hashTypedDataDebug]) {
+      const vector = loadVector("sign_in_basic.json");
+      let reads = 0;
+      Object.defineProperty(vector.input, "origin", {
+        get: () => reads++ === 0 ? origin : 123,
+      });
+      expectCode(() => hash(vector.input), "E_ORIGIN_TYPE");
+    }
+  });
+
   it("E_PRIMARY_INVALID: primaryType is DuskTypedDataDomain", () => {
     expectCode(
       () =>

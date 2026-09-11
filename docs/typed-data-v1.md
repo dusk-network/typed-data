@@ -236,7 +236,9 @@ chain lookup (`in` in JavaScript, `hasattr` on a class instance, etc.). Every fi
 declared by `S` MUST be present; any key of `v` not declared by `S` MUST be rejected.
 
 Both rules use the same notion of **own**: every own property, whether or not it
-is enumerable. An implementation that tests presence over all own properties but
+is enumerable. This includes JavaScript symbol keys, which cannot be declared by
+the identifier grammar and MUST be rejected with `E_FIELD_EXTRA`.
+An implementation that tests presence over all own properties but
 collects extra keys from the enumerable ones only would treat a non-enumerable
 own property as present while never rejecting it as undeclared. Values that
 arrive by parsing JSON have only enumerable own properties, so the distinction
