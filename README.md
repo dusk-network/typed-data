@@ -69,9 +69,12 @@ Applications must still check the expected signer and enforce authorization and
 replay protection, such as consuming the nonce and checking expiry.
 
 Wallets must supply the trusted requesting origin, enforce the active chain and
-permissions, obtain approval, and recheck the signing context. `checkPolicyLimits`
-is the separate signer-side resource check; hashing does not apply it. Invalid
-typed data throws `TypedDataError` with an `E_*` code.
+permissions, obtain approval, and recheck the signing context. Import
+`checkPolicyLimits` from `@dusk/typed-data/policy` for the separate signer-side
+resource check; it is not exported from the root and hashing does not apply it.
+Verifiers must support otherwise-valid inputs within the spec's resource floor,
+but may decline larger requests at their transport boundary. Invalid typed data
+throws `TypedDataError` with an `E_*` code.
 
 `buildTypedDataSignedMessage` constructs the tagged bytes a wallet signs.
 `verifyBlsDigest` verifies a bare digest; it must not be used to verify typed-data
@@ -97,6 +100,10 @@ npm run generate:typed-data-vectors
 npm run generate:bls-vectors
 npm run test:bls-native # Requires Rust and Cargo.
 ```
+
+Node consumers can resolve the typed-data fixtures via `@dusk/typed-data/vectors/*`
+and the BLS V2 signing fixtures via `@dusk/typed-data/vectors/bls-signing/*`.
+The latter live in `vectors/bls-signing/`; the directory name is not a signing-scheme version.
 
 The vectors contain public test seeds and keys. Never use them for funded accounts.
 Native BLS checks do not independently validate the typed-data encoding.

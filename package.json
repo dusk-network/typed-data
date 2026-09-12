@@ -25,7 +25,12 @@
       "types": "./dist/bls/index.d.ts",
       "import": "./dist/bls/index.js"
     },
+    "./policy": {
+      "types": "./dist/policy/index.d.ts",
+      "import": "./dist/policy/index.js"
+    },
     "./vectors/*": "./vectors/typed-data-v1/*",
+    "./vectors/bls-signing/*": "./vectors/bls-signing/*",
     "./spec": "./docs/typed-data-v1.md"
   },
   "files": ["dist", "vectors", "docs/typed-data-v1.md", "README.md", "CHANGELOG.md", "PROVENANCE.md", "LICENSE"],
