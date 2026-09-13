@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added a runnable application-approval example with atomic replay and expiry enforcement. ([wallet#22])
 - Specified lossless approval disclosure before signing, independently of digest validity. ([#4])
 - Exposed BLS V2 fixtures through the npm `./vectors/bls-signing/*` export. ([#2])
 - Extracted the existing typed-data protocol implementation from Connect for shared consumption by Wallet and Connect. ([wallet#22])

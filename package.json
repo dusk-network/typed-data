@@ -47,7 +47,8 @@
     "generate:typed-data-vectors": "node scripts/generate-typed-data-vectors.ts",
     "generate:bls-vectors": "node scripts/generate-bls-vectors.ts",
     "test:bls-native": "node tools/rust-vector-emitter/check.mjs",
-    "ci": "npm run build && npm run test:coverage",
+    "test:example": "node scripts/check-approval-example.mjs",
+    "ci": "npm run build && npm run test:coverage && npm run test:example",
     "prepack": "npm run build"
   },
   "devDependencies": {
