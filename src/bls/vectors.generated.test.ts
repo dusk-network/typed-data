@@ -21,7 +21,7 @@ import type { HashTypedDataInput } from "../typed-data/hash.js";
 import { BLS_SIGN_DST, TYPED_DATA_SIG_TAG, verifyTypedDataSignature } from "./sig.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const VECTOR_DIR = path.join(ROOT, "vectors/bls-v1");
+const VECTOR_DIR = path.join(ROOT, "vectors/bls-signing");
 
 interface BlsVector {
   readonly description: string;

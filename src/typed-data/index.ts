@@ -19,5 +19,4 @@ export {
   hashTypedDataHex,
   hashTypedDataDebug,
   validateTypedDataParams,
-  checkPolicyLimits,
 } from "./hash.js";

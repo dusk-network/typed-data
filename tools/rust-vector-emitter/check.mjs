@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const directory = new URL("../../vectors/bls-v1/", import.meta.url);
+const directory = new URL("../../vectors/bls-signing/", import.meta.url);
 const names = readdirSync(directory).filter(name => name.endsWith(".json")).sort();
 assert.ok(names.length > 0, "BLS corpus must not be empty");
 const native = JSON.parse(execFileSync("cargo", [

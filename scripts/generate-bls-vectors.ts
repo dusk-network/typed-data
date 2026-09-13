@@ -1,5 +1,5 @@
 /**
- * Generator for the Dusk BLS cross-implementation vector corpus (v1).
+ * Generator for the Dusk BLS V2 signing vector corpus.
  *
  * Companion to `generate-typed-data-vectors.ts`. That corpus pins the *digest*;
  * this one pins everything downstream of it: key derivation, the tagged signed
@@ -61,7 +61,7 @@ import { bls12_381 } from "@noble/curves/bls12-381";
 import { sha256 } from "@noble/hashes/sha2";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const OUT_DIR = path.join(ROOT, "vectors/bls-v1");
+const OUT_DIR = path.join(ROOT, "vectors/bls-signing");
 const TYPED_DATA_DIR = path.join(ROOT, "vectors/typed-data-v1");
 
 /**

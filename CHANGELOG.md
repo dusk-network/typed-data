@@ -4,6 +4,7 @@
 
 ### Added
 
+- Exposed BLS V2 fixtures through the npm `./vectors/bls-signing/*` export. ([#2])
 - Extracted the existing typed-data protocol implementation from Connect for shared consumption by Wallet and Connect. ([wallet#22])
 - Exposed tagged-message construction for wallet signers without adding a signing or key-management API. ([wallet#22])
 - Added cross-implementation BLS vectors covering key derivation, the tagged
@@ -11,6 +12,8 @@
 
 ### Changed
 
+- **Breaking:** Moved `checkPolicyLimits` from the root export to `@dusk/typed-data/policy`. ([#2])
+- Renamed the BLS corpus directory to `vectors/bls-signing/` without changing fixture bytes. ([#2])
 - **Breaking:** `verifyTypedDataSignature` now requires a `{ chainId, origin }`
   policy and returns a structured result instead of a boolean [wallet#22].
 - Pinned typed-data signatures to the V2 BLS scheme regardless of chain height [wallet#22].
@@ -27,4 +30,5 @@
 
 The package version `0.1.0-next.0` is an unpublished integration candidate, not a frozen protocol v1 release. Encoding and existing frozen vector bytes are unchanged.
 
+[#2]: https://github.com/dusk-network/typed-data/issues/2
 [wallet#22]: https://github.com/dusk-network/wallet/issues/22

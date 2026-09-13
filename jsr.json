@@ -4,7 +4,8 @@
   "license": "MIT",
   "exports": {
     ".": "./src/typed-data/index.ts",
-    "./bls": "./src/bls/index.ts"
+    "./bls": "./src/bls/index.ts",
+    "./policy": "./src/policy/index.ts"
   },
   "imports": {
     "@noble/curves": "npm:@noble/curves@1.9.7",
