@@ -4,6 +4,7 @@
 
 ### Added
 
+- Specified lossless approval disclosure before signing, independently of digest validity. ([#4])
 - Exposed BLS V2 fixtures through the npm `./vectors/bls-signing/*` export. ([#2])
 - Extracted the existing typed-data protocol implementation from Connect for shared consumption by Wallet and Connect. ([wallet#22])
 - Exposed tagged-message construction for wallet signers without adding a signing or key-management API. ([wallet#22])
@@ -31,4 +32,5 @@
 The package version `0.1.0-next.0` is an unpublished integration candidate, not a frozen protocol v1 release. Encoding and existing frozen vector bytes are unchanged.
 
 [#2]: https://github.com/dusk-network/typed-data/issues/2
+[#4]: https://github.com/dusk-network/typed-data/issues/4
 [wallet#22]: https://github.com/dusk-network/wallet/issues/22

@@ -467,6 +467,9 @@ does not constrain the *output*, which is what actually gets signed.
 
 ### 12.2 Algorithm
 
+Before obtaining approval and producing a signature, a signer MUST meet the
+[approval-disclosure requirements in §16](#16-approval-disclosure).
+
 ```
 sk        = profile Moonlight BLS12-381 secret key
 DST       = "BLS_SIG_BLS12381G1_XMD:SHA-256_DUSK_V2"
@@ -606,6 +609,57 @@ decimal string; `uint64` as JSON number; multi-byte and combining-character UTF-
 string; struct reached through an array element.
 
 Required reject coverage: one vector per §10 error code.
+
+---
+
+## 16. Approval disclosure
+
+These requirements govern a signer's approval interface, not digest validity or
+verification. A valid signature does not establish that its signer met them.
+
+1. **Disclose before signing.** A signer MUST NOT enable approval or sign a
+   payload it cannot fully disclose. The disclosure MUST correspond to the same
+   validated input used for the digest and signature, including the signer's own
+   origin. Sanitizing, escaping, clipping or normalizing display text MUST NOT
+   change the input that is signed.
+2. **Complete access.** Every value that enters the digest MUST be reachable by
+   the user, directly or through an explicit expand, scroll or pagination
+   affordance. This includes complete strings and bytes, all array elements and
+   nested values, the domain (including implicit defaults), `primaryType` and
+   the reachable declared schema in declaration order. A bounded preview MAY
+   summarize these, but an omitted-value count, ellipsis, warning, byte hash or
+   digest alone MUST NOT substitute for access to the complete values.
+3. **Unambiguous structure and types.** Fields MUST retain unambiguous boundaries,
+   paths and their declared schema types, never types inferred from values.
+   A struct with no fields MUST still be disclosed by path and type, including
+   an empty root or array element. A structured full view MAY convey paths
+   through its object/array structure and types through the accompanying schema.
+   Unused types (§10.1) and extra metadata MUST NOT be described as contributing
+   to the digest.
+4. **Trusted origin.** The disclosed origin MUST be the exact one injected by
+   the signer under §8, not a caller-supplied `origin` parameter.
+5. **Safe text boundaries.** Every Unicode `Bidi_Control` character MUST be
+   neutralized in the display. Invisible formatting controls MUST also be
+   visibly escaped or substituted and flagged, including U+200B, U+200C, U+200D,
+   U+2060, U+FEFF and U+00AD. Values containing LF, CR, U+2028 or U+2029 MUST be
+   flagged and escaped or isolated so they cannot fabricate another field.
+   Line-joined preview text MUST NOT be treated as a canonical serialization.
+6. **Lossless originals.** Original strings MUST remain accessible in an
+   unambiguous escaped or code-point form, including characters replaced in a
+   readable preview. Literal escape spellings MUST remain distinguishable from
+   escaped characters. Comparisons of signing requests MUST NOT treat NFC/NFD
+   equivalents as identical: `"\u00e9"` and `"e\u0301"` sign differently under
+   §5.1. A signer SHOULD flag non-NFC sequences, not silently normalize them
+   away. ZWJ/ZWNJ and other shaping controls can have legitimate uses; a warning
+   is not a determination of malicious intent.
+7. **Fail closed on display limits.** A signer MAY impose local disclosure
+   resource limits. If complete disclosure cannot be provided, it MUST refuse
+   signing with a clear explanation rather than sign hidden content. This does
+   not change the verifier resource floor in §11 or any encoding rule.
+
+A bounded field preview with a full escaped JSON inspector is one possible
+implementation, not a required UI or another wire encoding. Rendering belongs
+to the signer; hashing and verification libraries need not provide a renderer.
 
 ---
 
