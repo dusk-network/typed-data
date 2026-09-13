@@ -273,6 +273,63 @@ describe("checkPolicyLimits (spec section 11)", () => {
     expect(() => checkPolicyLimits(smallInput)).not.toThrow();
   });
 
+  it("counts compact JSON UTF-8, including escaping and unused metadata, with an inclusive limit", () => {
+    const input = { ...smallInput, metadata: "\u0000é😀\\" };
+    input.metadata += "x".repeat(262144 - Buffer.byteLength(JSON.stringify(input)));
+    expect(Buffer.byteLength(JSON.stringify(input))).toBe(262144);
+    expect(() => checkPolicyLimits(input)).not.toThrow();
+    const escapedWire = JSON.stringify(input).replace("é", "\\u00e9");
+    expect(Buffer.byteLength(escapedWire)).toBe(262148);
+    expect(() => checkPolicyLimits(JSON.parse(escapedWire))).not.toThrow();
+    const digest = hashTypedDataHex(input);
+    input.metadata += "\n";
+    expect(Buffer.byteLength(JSON.stringify(input))).toBe(262146);
+    expectCode(() => checkPolicyLimits(input), "E_POLICY_LIMIT");
+    expect(() => checkPolicyLimits(input)).toThrow("compact JSON input 262146 bytes exceeds floor 262144");
+    expect(hashTypedDataHex(input)).toBe(digest);
+  });
+
+  it("counts hex text in the total, but decoded bytes for each bytes value", () => {
+    const input = {
+      domain, origin, primaryType: "S",
+      types: { ...domainTypes, S: [{ name: "parts", type: "bytes[2]" }] },
+      message: { parts: Array(2).fill(`0x${"ab".repeat(65536)}`) },
+    };
+    expect(Buffer.byteLength(JSON.stringify(input))).toBeGreaterThan(262144);
+    expect(hashTypedDataHex(input)).toMatch(/^0x[0-9a-f]{64}$/);
+    expectCode(() => checkPolicyLimits(input), "E_POLICY_LIMIT");
+    expect(() => checkPolicyLimits(input)).toThrow("compact JSON input");
+    input.message.parts = Array(2).fill(`0x${"ab".repeat(32768)}`);
+    expect(() => checkPolicyLimits(input)).not.toThrow();
+  });
+
+  it("counts traversal depth from root 1 through atomic leaves", () => {
+    for (const arrays of [6, 7]) {
+      let value: unknown = 1;
+      for (let i = 0; i < arrays; i++) value = [value];
+      const input = {
+        domain, origin, primaryType: "S",
+        types: { ...domainTypes, S: [{ name: "value", type: `uint8${"[1]".repeat(arrays)}` }] },
+        message: { value },
+      };
+      expect(hashTypedDataHex(input)).toMatch(/^0x[0-9a-f]{64}$/);
+      if (arrays === 6) expect(() => checkPolicyLimits(input)).not.toThrow();
+      else expect(() => checkPolicyLimits(input)).toThrow("nesting depth exceeds floor 8");
+    }
+  });
+
+  it("does not count unreachable schema entries as traversed struct types", () => {
+    const input = {
+      ...smallInput,
+      types: {
+        ...smallInput.types,
+        ...Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`Unused${i}`, []])),
+      },
+    };
+    expect(() => checkPolicyLimits(input)).not.toThrow();
+    expect(hashTypedDataHex(input)).toBe(hashTypedDataHex(smallInput));
+  });
+
   it("hashTypedData does not enforce policy limits - only checkPolicyLimits does", () => {
     const fields = Array.from({ length: 65 }, (_, i) => ({
       name: `f${i}`,

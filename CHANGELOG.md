@@ -13,6 +13,10 @@
 
 ### Changed
 
+- Defined resource-floor measurements without changing the reference policy's acceptance behavior. ([#2])
+- Clarified the compact-JSON size diagnostic while retaining `E_POLICY_LIMIT`. ([#2])
+- Separated package publication from an explicit protocol-freeze declaration. ([wallet#22])
+- Included input validity and signing rules in the protocol freeze's scope. ([wallet#22])
 - **Breaking:** Moved `checkPolicyLimits` from the root export to `@dusk/typed-data/policy`. ([#2])
 - Renamed the BLS corpus directory to `vectors/bls-signing/` without changing fixture bytes. ([#2])
 - **Breaking:** `verifyTypedDataSignature` now requires a `{ chainId, origin }`

@@ -95,7 +95,7 @@ const POLICY_LIMITS = {
   maxNestingDepth: 8,
   maxArrayElements: 256,
   maxStringBytes: 65536,
-  maxTotalDecodedBytes: 262144,
+  maxJsonUtf8Bytes: 262144,
 };
 
 function fail(code: TypedDataErrorCode, message: string): never {
@@ -161,11 +161,13 @@ export function checkPolicyLimits(input: HashTypedDataInput): void {
   walkValueForPolicy(DOMAIN_TYPE, domainMessage(input.domain), types, 1);
   walkValueForPolicy(input.primaryType, input.message, types, 1);
 
+  // Compact JSON UTF-8 bytes, including hex text and unused metadata (spec 11).
+  // This is not the sum of decoded field bytes or a peak-memory bound.
   const totalBytes = utf8(JSON.stringify(input)).length;
-  if (totalBytes > POLICY_LIMITS.maxTotalDecodedBytes) {
+  if (totalBytes > POLICY_LIMITS.maxJsonUtf8Bytes) {
     fail(
       "E_POLICY_LIMIT",
-      `decoded input ${totalBytes} bytes exceeds floor ${POLICY_LIMITS.maxTotalDecodedBytes}`
+      `compact JSON input ${totalBytes} bytes exceeds floor ${POLICY_LIMITS.maxJsonUtf8Bytes}`
     );
   }
 }
