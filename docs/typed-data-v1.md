@@ -31,7 +31,8 @@ only thing borrowed.
 - The requesting web origin is bound into the digest by the **wallet**, not the caller.
 - The encoded form is a function of the **type**, not the **value**, so no
   implementation needs a size budget to agree with any other.
-- The signed message space is disjoint from every other message the same key signs.
+- The tagged signed message is disjoint from bare 32-byte messages signed by the
+  same key under the same DST (§12.1).
 
 ### 1.2 Non-goals
 
@@ -422,12 +423,36 @@ Instead, this spec defines a **floor**, not a ceiling:
 
 | Dimension | Floor |
 |-----------|-------|
-| Distinct struct types per payload | 32 |
-| Fields per struct | 64 |
-| Nesting depth (struct or array) | 8 |
+| Distinct reachable struct types | 32 |
+| Fields per reachable struct | 64 |
+| Value traversal depth | 8 |
 | Elements per fixed array | 256 |
-| Bytes per `string` or `bytes` value | 65 536 |
-| Total decoded input | 262 144 |
+| Decoded bytes per typed `string` or `bytes` value | 65 536 |
+| Compact JSON input, in UTF-8 bytes | 262 144 |
+
+The first five measurements traverse the domain and primary message using their
+reachable schema (§10.1), counting `DuskTypedDataDomain` once. Each root struct
+starts at depth 1; entering a field value or array element adds 1, **including
+atomic leaves**. String values count their UTF-8 bytes without normalization;
+`bytes` values count their decoded bytes, not their hexadecimal spelling.
+
+The total is the UTF-8 byte length of the complete JSON input of §3 after compact
+serialization, including the signer-injected origin, schema, JSON syntax and any
+unused metadata. The reference measurement is
+`new TextEncoder().encode(JSON.stringify(input)).length`, with no replacer or
+indentation. Other implementations MUST use an equivalent byte count for this
+floor: use [ECMAScript JSON serialization](https://tc39.es/ecma262/#sec-json.stringify)
+for strings and numbers, not ASCII-only escaping or pretty-printing. Object member
+order does not affect the count.
+Hexadecimal fields count as text here: two 65,536-byte values alone require 262,144
+hexadecimal characters, before prefixes, schema and JSON syntax.
+
+This clarifies the earlier label "total decoded input"; it is **not** a sum of
+decoded typed-value bytes, the raw incoming wire size, a disclosure-text size, or a
+peak-memory guarantee. Different accepted representations, such as `42` versus
+`"42"` for a `uint64` or prefixed versus prefixless hex, can encode the same typed
+value but have different policy costs. Raw transport limits and signer disclosure
+limits are additional local policy; none changes hashing or input validity.
 
 Rules:
 
@@ -440,8 +465,53 @@ Rules:
 - Limits MUST NOT influence the digest. Two implementations that both accept a
   payload MUST produce the same digest regardless of their limits.
 
-This confines resource policy to the transport boundary, where implementations may
-differ safely, and keeps it out of the consensus rules, where they may not.
+This keeps resource refusal distinct from input validity and digest computation.
+Transport limits and encoder work guards may differ above the floor; two
+implementations that accept an input still MUST produce the same digest.
+
+### 11.1 Reference encoder structural guards
+
+The reference library bounds structural work internally, including when called
+through the public hash, debug and BLS verification entry points. These guards do
+not call the optional signer-policy helper. They throw `TypedDataError` with code
+`E_COMPLEXITY`, not an uncoded stack-exhaustion exception:
+
+| Measurement | Reference maximum (inclusive) |
+|-------------|-------------------------------|
+| Recursive dependency/value traversal depth, roots at 1 | 64 |
+| Distinct structs in each dependency closure | 128 |
+| Total declared fields across each dependency closure | 8,192 |
+| Characters in each `encodeType` / individual type expression | 1,048,576 |
+
+Dependency traversal counts entering a field type or unwrapping an array as one
+level. Value traversal counts entering a field value or array element as one level,
+including atomic leaves. Shared dependencies are visited once per closure; value
+depth is also checked during encoding so a shared type cannot hide a longer path.
+Type-encoding characters are ASCII after validation, including punctuation and
+spaces. Unreachable schema entries do not contribute. The domain and primary
+message closures are walked separately; signer policy still counts their union.
+
+These maxima are reference-implementation resource refusals **above** the existing
+interoperability floor, not new universal validity ceilings. Other implementations
+MAY use different above-floor limits. An implementation that refuses an above-floor
+input for encoder structural resource reasons MUST report `E_COMPLEXITY`. The
+threshold is local; the code is not. This is distinct from optional signer-policy
+rejection (`E_POLICY_LIMIT`). Earlier reference versions could hash some inputs now
+refused with `E_COMPLEXITY`; accepted inputs retain their exact encoding.
+Every otherwise-valid JSON input within the floor fits these guards. A future
+universal ceiling would need a separate normative acceptance decision and vectors.
+
+Type hashes are reused only within one call, complementing the bounds for distinct
+types. Array/field encodings feed the existing incremental SHA-256 operation without
+building an unbounded JavaScript argument list. These guards do not bound total
+value work: shared objects and arrays are re-encoded per path, potentially expanding
+exponentially in a compact object graph. JSON text cannot express shared references;
+in-process inputs and structured-clone transports can preserve them.
+
+These guards are not a wall-clock or peak-memory guarantee: string/bytes contents
+and total value count still require work, and applications remain responsible for
+transport size/rate limits. The initial `validateTypedDataParams` shape check alone
+does not walk the full graph.
 
 ---
 
@@ -464,6 +534,12 @@ cannot forge a typed-data signature, and vice versa.
 
 The tag is applied outside the digest because a value inside the SHA-256 preimage
 does not constrain the *output*, which is what actually gets signed.
+
+This is not separation from an unrestricted arbitrary-byte signing API using the
+same key and DST: that API could sign this exact 55-byte message without the
+typed-data approval/context checks. Any additional signing API needs its own
+cross-protocol message-space review; the tag does not protect against such an
+arbitrary-message signing oracle.
 
 ### 12.2 Algorithm
 
@@ -497,6 +573,43 @@ A verifier MUST:
 
 A verifier MUST NOT verify over the bare digest. Doing so would accept signatures
 produced by any raw-32-byte signing path.
+
+These steps do not authorize an application action. Before acting, a relying
+application MUST establish its expected schema/primary type, domain name/version,
+verifying contract and authorized signer. Constructing the input from trusted
+application state is one way to establish those expectations; accepting an arbitrary
+client-supplied schema and a valid signature is not. A reported account name or
+public key is not proof that the key is authorized.
+
+**Application replay and expiry requirements:**
+
+- For a **single-use authorization**, the application MUST bind an application-defined
+  nonce or equivalent unique intent identifier in the signed message. It MUST check
+  that the identifier is one it issued or otherwise authorized for this exact action,
+  and MUST reject one already consumed. It MUST atomically consume the identifier
+  with the authorized state transition, including across concurrent requests and
+  restarts; a separate check-then-mark sequence is insufficient.
+- For a **time-bounded authorization**, the application MUST bind the validity period
+  in the signed message and MUST reject the authorization outside that period,
+  including when committing the action. Single-use authorizations SHOULD also carry
+  a short deadline. A deliberately reusable time-bounded assertion need not become
+  single-use, but its application MUST enforce its intended scope and validity period.
+- An authentication challenge SHOULD use a fresh unpredictable nonce per attempt,
+  issued and tracked by the relying application with a short lifetime. Other actions
+  MAY use application-controlled counters or intent identifiers instead.
+
+The protocol assigns no built-in replay or expiry semantics to these ordinary
+application-defined fields. Verification of the signature/chain/origin does not
+check or consume them. The wallet does not supply application replay state, and a
+Moonlight transaction nonce does not automatically protect a typed-data authorization.
+A nonce callback inside a cryptographic verifier would not by itself make the
+application's business action atomic.
+
+Origin binding records the signing context; it is not browser-origin attestation
+or proof of adequate disclosure. Applications with multiple frontends or migrating
+origins must deliberately define their acceptance policy. Changing an expected
+origin, or copying it from an untrusted response, is not a substitute for that
+policy. Nonces and expiry remain separate from origin/chain binding.
 
 ### 12.4 Signature scheme version
 
@@ -573,9 +686,20 @@ raw form a verifier passes to the BLS library.
 - A caller MAY send `params.version`. It defaults to `1`. A signer MUST reject a
   version it does not implement rather than falling back silently, so that a caller
   which precomputed a digest locally gets a clear error instead of a mismatch.
-- **Freeze rule.** `DUSK_TYPED_DATA_V1` is frozen at the first release published to
-  an extension store or tagged on a public package. Before that point, vectors may
-  be regenerated. After it, any change to §5–§9 requires a new scheme identifier.
+- **Freeze rule.** Publishing a package or wallet build does not by itself freeze
+  `DUSK_TYPED_DATA_V1`. The scheme remains draft until independent encoding review
+  is completed and this specification explicitly declares v1 frozen. Before that
+  declaration, vectors may be regenerated; this document does not declare a freeze.
+- **Frozen scope.** Once frozen, changes to the specified accepted typed-data values
+  or their encoding/hashing (§4–§10), or to the signed message or signature algorithm (§12,
+  including `SIG_TAG`, the BLS version and DST), require a new scheme identifier.
+  Editorial clarifications that preserve behavior, application policy and display
+  changes within §11/§16 do not by themselves require a new identifier.
+- **Draft compatibility.** Experimental integrations SHOULD pin their exact package
+  version and retain the corresponding source/vector revision. The draft label
+  `DUSK_TYPED_DATA_V1` alone does not identify a stable encoding across development
+  releases. Long-lived or production authorizations SHOULD wait for an explicit
+  freeze; package version `0.1.0` would not by itself establish one.
 
 ---
 

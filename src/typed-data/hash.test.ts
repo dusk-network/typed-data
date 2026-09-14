@@ -2,6 +2,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { sha256 } from "@noble/hashes/sha2";
+import { bytesToHex, concatBytes } from "@noble/hashes/utils";
 
 import {
   checkPolicyLimits,
@@ -10,6 +12,7 @@ import {
   hashTypedDataHex,
   validateTypedDataParams,
   type TypedDataErrorCode,
+  type HashTypedDataInput,
   TypedDataError,
 } from "./hash.js";
 
@@ -107,6 +110,120 @@ describe("string/bytes encoding (spec 5.1)", () => {
       })
     ).not.toThrow();
   });
+});
+
+describe("fixed-array indexed encoding (spec 5.3)", () => {
+  it.each([["replacement", [2]], ["empty", []], ["extra", [1, 2]]] as const)(
+    "ignores a custom %s iterator", (_name, yielded) => {
+      const items = Object.defineProperty([1], Symbol.iterator, {
+        value: function* () { yield* yielded; },
+      });
+      const input = {
+        domain, origin, primaryType: "A",
+        types: { ...domainTypes, A: [{ name: "items", type: "uint8[1]" }] },
+        message: { items },
+      };
+      const plain = { ...input, message: { items: [1] } };
+      expect(items[0]).toBe(1);
+      expect(JSON.stringify(items)).toBe("[1]");
+      expect(hashTypedData(input)).toEqual(hashTypedData(plain));
+      expect(hashTypedDataHex(input)).toBe(hashTypedDataHex(plain));
+      expect(hashTypedDataDebug(input).structHash).toBe(`0x${bytesToHex(sha256(concatBytes(
+        sha256(new TextEncoder().encode("A(uint8[1] items)")), new Uint8Array([1]),
+      )))}`);
+    },
+  );
+
+  it("does not shorten the declared traversal when an indexed getter shrinks the array", () => {
+    for (const hash of [hashTypedData, hashTypedDataHex, hashTypedDataDebug]) {
+      const items = [1, 2];
+      Object.defineProperty(items, "0", { get() { items.length = 1; return 1; } });
+      expectCode(() => hash({
+        domain, origin, primaryType: "A",
+        types: { ...domainTypes, A: [{ name: "items", type: "uint8[2]" }] },
+        message: { items },
+      }), "E_VALUE_TYPE");
+    }
+  });
+});
+
+describe("indexed field definitions (spec 6)", () => {
+  function fieldInput(): HashTypedDataInput {
+    return {
+      domain, origin, primaryType: "Msg",
+      types: { ...structuredClone(domainTypes), Msg: [
+        { name: "a", type: "uint8" }, { name: "b", type: "uint8" },
+      ] },
+      message: { a: 1, b: 2 },
+    };
+  }
+
+  it("requires every indexed field even when the iterator omits one", () => {
+    const input = fieldInput();
+    delete input.message.b;
+    Object.defineProperty(input.types.Msg, Symbol.iterator, {
+      value: function* () { yield this[0]; },
+    });
+    for (const hash of [hashTypedData, hashTypedDataHex, hashTypedDataDebug]) {
+      expectCode(() => hash(input), "E_FIELD_MISSING");
+    }
+  });
+
+  it("encodes indexed declaration order, not iterator order", () => {
+    const input = fieldInput();
+    const plain = structuredClone(input);
+    Object.defineProperty(input.types.Msg, Symbol.iterator, {
+      value: function* () { yield this[1]; yield this[0]; },
+    });
+    const expected = sha256(concatBytes(
+      sha256(new TextEncoder().encode("Msg(uint8 a,uint8 b)")), new Uint8Array([1, 2]),
+    ));
+    expect(hashTypedDataDebug(input).structHash).toBe(`0x${bytesToHex(expected)}`);
+    for (const hash of [hashTypedData, hashTypedDataHex, hashTypedDataDebug]) {
+      expect(hash(input)).toEqual(hash(plain));
+    }
+  });
+
+  it.each([
+    ["duplicate", "a", "uint8", "E_FIELD_DUP"],
+    ["reserved", "__proto__", "uint8", "E_FIELD_RESERVED"],
+    ["malformed", "x,b", "uint8", "E_FIELD_DEF"],
+    ["unknown", "b", "Missing", "E_TYPE_UNKNOWN"],
+    ["array syntax", "b", "uint8[]", "E_TYPE_INVALID"],
+    ["cycle", "b", "Msg", "E_TYPE_CYCLE"],
+  ] as const)("cannot skip %s field validation", (_label, name, type, code) => {
+    const input = fieldInput();
+    input.types.Msg![1] = { name, type };
+    input.message = { a: 1 };
+    Object.defineProperty(input.types.Msg, Symbol.iterator, {
+      value: function* () { yield this[0]; },
+    });
+    for (const check of [hashTypedData, hashTypedDataHex, hashTypedDataDebug, checkPolicyLimits]) {
+      expectCode(() => check(input), code);
+    }
+  });
+
+  it.each(["DuskTypedDataDomain", "Msg", "Child"])(
+    "does not read iterator or map hooks on %s field lists", owner => {
+      for (const hook of [Symbol.iterator, "map"]) {
+        const input = fieldInput();
+        input.types.Msg![1]!.type = "Child";
+        input.types.Child = [{ name: "c", type: "uint8" }];
+        input.message.b = { c: 2 };
+        const plain = structuredClone(input);
+        Object.defineProperty(input.types[owner], hook, {
+          get() { throw new Error(`unexpected field-list hook: ${String(hook)}`); },
+        });
+        expect(hashTypedDataDebug(input).typeHashes.Msg).toBe(`0x${bytesToHex(sha256(
+          new TextEncoder().encode("Msg(uint8 a,Child b)Child(uint8 c)"),
+        ))}`);
+        for (const hash of [hashTypedData, hashTypedDataHex, hashTypedDataDebug]) {
+          expect(hash(input)).toEqual(hash(plain));
+        }
+        expect(() => checkPolicyLimits(input)).not.toThrow();
+      }
+    },
+  );
 });
 
 describe("uint64 JSON", () => {
@@ -273,6 +390,114 @@ describe("checkPolicyLimits (spec section 11)", () => {
     expect(() => checkPolicyLimits(smallInput)).not.toThrow();
   });
 
+  it.each([65536, 65537])("measures %i indexed string bytes, not array iterator values", length => {
+    const text = "x".repeat(length);
+    const items = Object.defineProperty([text], Symbol.iterator, {
+      // The iterator deliberately describes the opposite policy outcome.
+      value: function* () { if (length === 65536) yield "x".repeat(65537); },
+    });
+    const input = {
+      ...smallInput, types: { ...domainTypes, S: [{ name: "items", type: "string[1]" }] },
+      message: { items },
+    };
+    expect(Buffer.byteLength(JSON.stringify(input))).toBeLessThan(262144);
+    expect(hashTypedDataHex(input)).toBe(hashTypedDataHex({ ...input, message: { items: [text] } }));
+    if (length === 65536) expect(() => checkPolicyLimits(input)).not.toThrow();
+    else expectCode(() => checkPolicyLimits(input), "E_POLICY_LIMIT");
+  });
+
+  it("measures every indexed struct field even when its iterator skips a large string", () => {
+    const fields = Object.defineProperty([{ name: "text", type: "string" }], Symbol.iterator, {
+      value: function* () {},
+    });
+    const input = {
+      ...smallInput, types: { ...domainTypes, S: fields }, message: { text: "x".repeat(65537) },
+    };
+    expect(Buffer.byteLength(JSON.stringify(input))).toBeLessThan(262144);
+    expectCode(() => checkPolicyLimits(input), "E_POLICY_LIMIT");
+  });
+
+  it("bounds the actual array length before reading elements", () => {
+    const items = Array(257).fill("ok");
+    Object.defineProperty(items, "0", { get() { throw new Error("element read before refusal"); } });
+    expectCode(() => checkPolicyLimits({
+      ...smallInput, types: { ...domainTypes, S: [{ name: "items", type: "string[257]" }] },
+      message: { items },
+    }), "E_POLICY_LIMIT");
+  });
+
+  it("does not use an unvalidated declared length as a policy loop bound", () => {
+    const input = {
+      ...smallInput, types: { ...domainTypes, S: [{ name: "items", type: "uint8[9999999999999999]" }] },
+      message: { items: new Proxy([], {
+        get(array, key, receiver) {
+          if (key === "0") throw new Error("policy traversed an unvalidated declared length");
+          return Reflect.get(array, key, receiver);
+        },
+      }) },
+    };
+    // Policy is not full value validation; hashing still rejects the length mismatch.
+    expect(() => checkPolicyLimits(input)).not.toThrow();
+    expectCode(() => hashTypedDataHex(input), "E_ARRAY_LENGTH");
+  });
+
+  it("counts compact JSON UTF-8, including escaping and unused metadata, with an inclusive limit", () => {
+    const input = { ...smallInput, metadata: "\u0000é😀\\" };
+    input.metadata += "x".repeat(262144 - Buffer.byteLength(JSON.stringify(input)));
+    expect(Buffer.byteLength(JSON.stringify(input))).toBe(262144);
+    expect(() => checkPolicyLimits(input)).not.toThrow();
+    const escapedWire = JSON.stringify(input).replace("é", "\\u00e9");
+    expect(Buffer.byteLength(escapedWire)).toBe(262148);
+    expect(() => checkPolicyLimits(JSON.parse(escapedWire))).not.toThrow();
+    const digest = hashTypedDataHex(input);
+    input.metadata += "\n";
+    expect(Buffer.byteLength(JSON.stringify(input))).toBe(262146);
+    expectCode(() => checkPolicyLimits(input), "E_POLICY_LIMIT");
+    expect(() => checkPolicyLimits(input)).toThrow("compact JSON input 262146 bytes exceeds floor 262144");
+    expect(hashTypedDataHex(input)).toBe(digest);
+  });
+
+  it("counts hex text in the total, but decoded bytes for each bytes value", () => {
+    const input = {
+      domain, origin, primaryType: "S",
+      types: { ...domainTypes, S: [{ name: "parts", type: "bytes[2]" }] },
+      message: { parts: Array(2).fill(`0x${"ab".repeat(65536)}`) },
+    };
+    expect(Buffer.byteLength(JSON.stringify(input))).toBeGreaterThan(262144);
+    expect(hashTypedDataHex(input)).toMatch(/^0x[0-9a-f]{64}$/);
+    expectCode(() => checkPolicyLimits(input), "E_POLICY_LIMIT");
+    expect(() => checkPolicyLimits(input)).toThrow("compact JSON input");
+    input.message.parts = Array(2).fill(`0x${"ab".repeat(32768)}`);
+    expect(() => checkPolicyLimits(input)).not.toThrow();
+  });
+
+  it("counts traversal depth from root 1 through atomic leaves", () => {
+    for (const arrays of [6, 7]) {
+      let value: unknown = 1;
+      for (let i = 0; i < arrays; i++) value = [value];
+      const input = {
+        domain, origin, primaryType: "S",
+        types: { ...domainTypes, S: [{ name: "value", type: `uint8${"[1]".repeat(arrays)}` }] },
+        message: { value },
+      };
+      expect(hashTypedDataHex(input)).toMatch(/^0x[0-9a-f]{64}$/);
+      if (arrays === 6) expect(() => checkPolicyLimits(input)).not.toThrow();
+      else expect(() => checkPolicyLimits(input)).toThrow("nesting depth exceeds floor 8");
+    }
+  });
+
+  it("does not count unreachable schema entries as traversed struct types", () => {
+    const input = {
+      ...smallInput,
+      types: {
+        ...smallInput.types,
+        ...Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`Unused${i}`, []])),
+      },
+    };
+    expect(() => checkPolicyLimits(input)).not.toThrow();
+    expect(hashTypedDataHex(input)).toBe(hashTypedDataHex(smallInput));
+  });
+
   it("hashTypedData does not enforce policy limits - only checkPolicyLimits does", () => {
     const fields = Array.from({ length: 65 }, (_, i) => ({
       name: `f${i}`,
@@ -318,6 +543,117 @@ describe("checkPolicyLimits (spec section 11)", () => {
       origin,
     };
     expectCode(() => checkPolicyLimits(input), "E_POLICY_LIMIT");
+  });
+});
+
+describe("encoder structural guards", () => {
+  function chain(count: number) {
+    const types: Record<string, Array<{ name: string; type: string }>> = { ...domainTypes };
+    let message: Record<string, unknown> = {};
+    for (let i = count - 1; i >= 0; i--) {
+      types[`L${i}`] = i === count - 1 ? [] : [{ name: "next", type: `L${i + 1}` }];
+      if (i < count - 1) message = { next: message };
+    }
+    return { domain, origin, types, primaryType: "L0", message };
+  }
+
+  it("accepts depth 64 and refuses depth 65 consistently", () => {
+    const input = chain(64);
+    expect(hashTypedDataDebug(input).digestHex).toBe(hashTypedDataHex(input));
+    for (const hash of [hashTypedData, hashTypedDataHex, hashTypedDataDebug]) {
+      expectCode(() => hash(chain(65)), "E_COMPLEXITY");
+    }
+  });
+
+  it("refuses a deep schema before reading its remaining definitions, including through policy", () => {
+    const input = chain(5000);
+    input.message = {};
+    validateTypedDataParams(input); // Initial shape checking is not a full graph walk.
+    let reached = false;
+    Object.defineProperty(input.types, "L64", { get() { reached = true; throw new Error("walk continued"); } });
+    for (const check of [hashTypedData, hashTypedDataHex, hashTypedDataDebug, checkPolicyLimits]) {
+      expectCode(() => check(input), "E_COMPLEXITY");
+    }
+    expect(reached).toBe(false);
+  });
+
+  it("bounds nested array expressions as well as struct chains", () => {
+    const input = { domain, origin, primaryType: "S", message: { value: 1 },
+      types: { ...domainTypes, S: [{ name: "value", type: `uint8${"[1]".repeat(5000)}` }] } };
+    for (const check of [hashTypedData, hashTypedDataDebug, checkPolicyLimits]) {
+      expectCode(() => check(input), "E_COMPLEXITY");
+    }
+  });
+
+  it("bounds each dependency closure at 128 distinct structs, independently of unused types", () => {
+    for (const count of [127, 128]) {
+      const names = Array.from({ length: count }, (_, i) => `T${i}`);
+      const input = { domain, origin, primaryType: "S",
+        types: { ...domainTypes, S: names.map(name => ({ name, type: name })),
+          ...Object.fromEntries(names.map(name => [name, []])), Ignored: [{ name: "bad", type: "NoSuchType" }] },
+        message: Object.fromEntries(names.map(name => [name, {}])) };
+      for (const hash of [hashTypedData, hashTypedDataHex, hashTypedDataDebug]) {
+        if (count === 127) expect(() => hash(input)).not.toThrow();
+        else expectCode(() => hash(input), "E_COMPLEXITY");
+      }
+    }
+  });
+
+  it("bounds the total fields across a dependency closure at 8192", () => {
+    for (const count of [8191, 8192]) {
+      const fields = Array.from({ length: count }, (_, i) => ({ name: `f${i}`, type: "uint8" }));
+      const input = { domain, origin, primaryType: "S",
+        types: { ...domainTypes, S: [{ name: "child", type: "Child" }], Child: fields },
+        message: { child: Object.fromEntries(fields.map(field => [field.name, 1])) } };
+      if (count === 8191) expect(hashTypedDataDebug(input).digestHex).toBe(hashTypedDataHex(input));
+      else expectCode(() => hashTypedDataHex(input), "E_COMPLEXITY");
+    }
+  });
+
+  it("checks value depth even when a shared dependency was visited on a shorter path", () => {
+    const input = chain(63);
+    const next = input.message;
+    input.types.Root = [{ name: "first", type: "L0" }, { name: "second", type: "More" }];
+    input.types.More = [{ name: "next", type: "L0" }];
+    input.primaryType = "Root";
+    input.message = { first: next, second: { next } };
+    for (const hash of [hashTypedData, hashTypedDataHex, hashTypedDataDebug]) {
+      expectCode(() => hash(input), "E_COMPLEXITY");
+    }
+  });
+
+  it("bounds type-encoding text at 1048576 characters without bounding string values", () => {
+    for (const length of [1048576 - 9, 1048576 - 8]) {
+      const name = "x".repeat(length); // S(uint8 <name>) adds nine ASCII characters.
+      const input = { domain, origin, primaryType: "S",
+        types: { ...domainTypes, S: [{ name, type: "uint8" }] }, message: { [name]: 1 } };
+      if (length === 1048576 - 9) expect(() => hashTypedDataHex(input)).not.toThrow();
+      else expectCode(() => hashTypedDataHex(input), "E_COMPLEXITY");
+    }
+  });
+
+  it("streams wide arrays without a native argument-spread limit", () => {
+    const count = 140000;
+    const input = { domain, origin, primaryType: "S",
+      types: { ...domainTypes, S: [{ name: "values", type: `uint8[${count}]` }] },
+      message: { values: Array(count).fill(1) } };
+    const typeHash = sha256(new TextEncoder().encode(`S(uint8[${count}] values)`));
+    const expected = `0x${bytesToHex(sha256(concatBytes(typeHash, new Uint8Array(count).fill(1))))}`;
+    expect(hashTypedDataDebug(input).structHash).toBe(expected);
+    expectCode(() => checkPolicyLimits(input), "E_POLICY_LIMIT");
+  });
+
+  it("reuses a type hash for repeated values only within the current call", () => {
+    const fields = [{ name: "value", type: "uint8" }];
+    let reads = 0;
+    const input = { domain, origin, primaryType: "S",
+      types: { ...domainTypes, S: [{ name: "values", type: "Leaf[512]" }], get Leaf() { reads++; return fields; } },
+      message: { values: Array(512).fill({ value: 1 }) as Record<string, number>[] } };
+    const first = hashTypedDataHex(input);
+    expect(reads).toBeLessThan(1024);
+    fields[0]!.name = "other";
+    input.message.values = Array(512).fill({ other: 1 });
+    expect(hashTypedDataHex(input)).not.toBe(first);
   });
 });
 

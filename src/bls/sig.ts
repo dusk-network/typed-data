@@ -153,17 +153,16 @@ export type TypedDataVerificationResult = {
  * were meant to be involved. Passing `{ chainId: null, origin: null }` opts
  * out deliberately and leaves a trace in the code that it was a choice.
  *
- * Error convention: throws on malformed *input shape* - an invalid typed-data
- * payload (rejected per spec section 10, surfaced as `TypedDataError`), or a
- * `signatureHex` / `publicKeyHex` that is not well-formed hex of the expected
- * length. Returns a result with `ok: false` (never throws) for anything that is
- * shaped correctly but does not verify: a signature that fails cryptographic
+ * Error convention: throws on an invalid typed-data payload (spec section 10)
+ * or an encoder resource refusal (`E_COMPLEXITY`, section 11.1), surfaced as
+ * `TypedDataError`; also throws for hex of the wrong form or length. Once the
+ * payload is encoded and the hex is decoded, returns `ok: false` for a signature
+ * that does not verify: a signature that fails cryptographic
  * verification, a correctly-sized but invalid curve point encoding
  * (attacker-controlled garbage bytes), a signature produced over the bare
  * digest instead of the tagged message, or a chain or origin the policy does
- * not allow. A caller checking an untrusted signature never needs its own
- * try/catch around the "does this verify" question, only around the "is this
- * even shaped like typed-data / hex" question.
+ * not allow. Callers must handle input/resource exceptions separately from a
+ * completed verification's `ok: false` result.
  *
  * @param input typed-data payload, spec section 3 (same shape `hashTypedData` accepts)
  * @param signatureHex `0x`-hex, 48-byte compressed G1 signature

@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added a runnable application-approval example with atomic replay and expiry enforcement. ([wallet#22])
 - Specified lossless approval disclosure before signing, independently of digest validity. ([#4])
 - Exposed BLS V2 fixtures through the npm `./vectors/bls-signing/*` export. ([#2])
 - Extracted the existing typed-data protocol implementation from Connect for shared consumption by Wallet and Connect. ([wallet#22])
@@ -13,6 +14,13 @@
 
 ### Changed
 
+- Require all implementations to report `E_COMPLEXITY` for above-floor encoder structural refusals. ([#6])
+- Refuse excessive encoder structure with coded `E_COMPLEXITY` errors above the interoperability floor. ([#6])
+- Require relying applications to enforce single-use and time-bounded authorization semantics. ([#7])
+- Defined resource-floor measurements without changing the reference policy's acceptance behavior. ([#2])
+- Clarified the compact-JSON size diagnostic while retaining `E_POLICY_LIMIT`. ([#2])
+- Separated package publication from an explicit protocol-freeze declaration. ([wallet#22])
+- Included input validity and signing rules in the protocol freeze's scope. ([wallet#22])
 - **Breaking:** Moved `checkPolicyLimits` from the root export to `@dusk/typed-data/policy`. ([#2])
 - Renamed the BLS corpus directory to `vectors/bls-signing/` without changing fixture bytes. ([#2])
 - **Breaking:** `verifyTypedDataSignature` now requires a `{ chainId, origin }`
@@ -25,12 +33,17 @@
 
 ### Fixed
 
+- Traverse schema field lists and policy values by index, ignoring caller-supplied iteration/mapping hooks. ([#6])
+- Encode fixed arrays by index rather than caller-replaceable iterators. ([#6])
+- Stream array/field encoding without JavaScript argument-spread limits. ([#6])
 - Bound verification policy checks and returned context to the values used in the digest. ([wallet#22])
 - Rejected undeclared symbol-keyed fields in typed-data structs. ([wallet#22])
 - Rejected non-string origins returned by accessors during hashing. ([wallet#22])
 
-The package version `0.1.0-next.0` is an unpublished integration candidate, not a frozen protocol v1 release. Encoding and existing frozen vector bytes are unchanged.
+The package version `0.1.0-next.0` is an unpublished integration candidate, not a frozen protocol v1 release. Specified encoding rules and existing frozen vector bytes are unchanged.
 
 [#2]: https://github.com/dusk-network/typed-data/issues/2
 [#4]: https://github.com/dusk-network/typed-data/issues/4
+[#6]: https://github.com/dusk-network/typed-data/issues/6
+[#7]: https://github.com/dusk-network/typed-data/issues/7
 [wallet#22]: https://github.com/dusk-network/wallet/issues/22
