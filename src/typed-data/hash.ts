@@ -11,8 +11,9 @@
  * Encoded width is a function of the type alone (spec 4.1): `string` and
  * `bytes` both encode to a 32-byte sha256 digest of their content, so there is
  * no value-dependent size budget to enforce as part of digest validity (spec
- * 11). Resource limits are a separate, signer-side policy - see
- * `checkPolicyLimits`, which is never called from the hashing path.
+ * 11). Signer policy remains separate (`checkPolicyLimits` is never called
+ * from hashing). The reference encoder also bounds structural work with a
+ * coded refusal above the interoperability floor; see spec 11.1.
  */
 import { sha256 } from "@noble/hashes/sha2";
 import { bytesToHex, concatBytes as concat } from "@noble/hashes/utils";
@@ -32,7 +33,7 @@ export type HashTypedDataInput = {
   origin: string;
 };
 
-/** Stable error code, see docs/typed-data-v1.md section 10. */
+/** Stable validation/resource error code, see docs/typed-data-v1.md sections 10-11. */
 export type TypedDataErrorCode =
   | "E_PARAMS_SHAPE"
   | "E_PRIMARY_MISSING"
@@ -55,7 +56,8 @@ export type TypedDataErrorCode =
   | "E_BYTES32_LENGTH"
   | "E_ORIGIN_TYPE"
   | "E_UTF8"
-  | "E_POLICY_LIMIT";
+  | "E_POLICY_LIMIT"
+  | "E_COMPLEXITY";
 
 /** Error raised by the typed-data hash/validation/policy paths; carries a stable `.code`. */
 export class TypedDataError extends Error {
@@ -98,8 +100,23 @@ const POLICY_LIMITS = {
   maxJsonUtf8Bytes: 262144,
 };
 
+// Reference-implementation structural guards, not protocol validity or signer
+// policy. All otherwise-valid JSON inputs within the spec 11 floor fit these.
+const ENCODER_LIMITS = {
+  maxDepth: 64,
+  maxStructs: 128,
+  maxFields: 8192,
+  maxTypeChars: 1048576,
+};
+
 function fail(code: TypedDataErrorCode, message: string): never {
   throw new TypedDataError(code, message);
+}
+
+function checkDepth(depth: number): void {
+  if (depth > ENCODER_LIMITS.maxDepth) {
+    fail("E_COMPLEXITY", `typed-data traversal depth exceeds ${ENCODER_LIMITS.maxDepth}`);
+  }
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -139,9 +156,10 @@ export function checkPolicyLimits(input: HashTypedDataInput): void {
   validateTypedDataParams(input);
   const types = input.types;
 
-  const structTypes = new Set<string>();
-  collectStructDeps(DOMAIN_TYPE, types, structTypes, new Set());
-  collectStructDeps(input.primaryType, types, structTypes, new Set());
+  const structTypes = new Set([
+    ...collectStructDeps(DOMAIN_TYPE, types),
+    ...collectStructDeps(input.primaryType, types),
+  ]);
   if (structTypes.size > POLICY_LIMITS.maxStructTypes) {
     fail(
       "E_POLICY_LIMIT",
@@ -253,20 +271,22 @@ export function hashTypedDataDebug(input: HashTypedDataInput): HashTypedDataDebu
   validateTypedDataParams(input);
   const types = input.types;
   const domainValues = domainMessage(input.domain);
+  const hashes = new Map<string, Uint8Array>();
 
   // Compute the digest stages in the same order as `hashTypedDataWithContext`, so that an
   // input violating several rules at once reports the same error code from
   // both entry points (spec section 10, "Reporting order").
-  const domainSeparator = structHash(DOMAIN_TYPE, domainValues, types);
+  const domainSeparator = structHash(DOMAIN_TYPE, domainValues, types, hashes);
   const originBind = originBindHash(input.origin);
-  const structHashPrimary = structHash(input.primaryType, input.message, types);
+  const structHashPrimary = structHash(input.primaryType, input.message, types, hashes);
 
-  const reachable = new Set<string>();
-  collectStructDeps(DOMAIN_TYPE, types, reachable, new Set());
-  collectStructDeps(input.primaryType, types, reachable, new Set());
+  const reachable = new Set([
+    ...collectStructDeps(DOMAIN_TYPE, types),
+    ...collectStructDeps(input.primaryType, types),
+  ]);
   const typeHashes: Record<string, `0x${string}`> = Object.create(null);
   for (const name of reachable) {
-    typeHashes[name] = toHex(typeHash(name, types));
+    typeHashes[name] = toHex(typeHash(name, types, hashes));
   }
   const digest = sha256(concat(PREAMBLE, domainSeparator, originBind, structHashPrimary));
 
@@ -284,10 +304,11 @@ export function hashTypedDataWithContext(input: HashTypedDataInput) {
   validateTypedDataParams(input);
   const types = input.types;
   const domainValues = domainMessage(input.domain);
-  const domainSeparator = structHash(DOMAIN_TYPE, domainValues, types);
+  const hashes = new Map<string, Uint8Array>();
+  const domainSeparator = structHash(DOMAIN_TYPE, domainValues, types, hashes);
   const origin = input.origin;
   const originBind = originBindHash(origin);
-  const structHashPrimary = structHash(input.primaryType, input.message, types);
+  const structHashPrimary = structHash(input.primaryType, input.message, types, hashes);
   const digest = sha256(concat(PREAMBLE, domainSeparator, originBind, structHashPrimary));
   return { digest, chainId: domainValues.chainId, origin };
 }
@@ -384,6 +405,9 @@ function classifyType(typeExpr: string): TypeClassification {
   if (typeof typeExpr !== "string") {
     fail("E_TYPE_INVALID", "type expression must be a string");
   }
+  if (typeExpr.length > ENCODER_LIMITS.maxTypeChars) {
+    fail("E_COMPLEXITY", `type expression exceeds ${ENCODER_LIMITS.maxTypeChars} characters`);
+  }
   if (/\s/.test(typeExpr)) {
     fail("E_TYPE_INVALID", `whitespace in type expression: ${typeExpr}`);
   }
@@ -415,10 +439,18 @@ function structFields(typeName: string, types: Record<string, FieldDef[]>): Fiel
   return fields;
 }
 
-function checkFieldDefs(typeName: string, fields: FieldDef[]): void {
+function checkFieldDefs(typeName: string, fields: FieldDef[]): number {
   const names = new Set<string>();
+  let chars = typeName.length + 2 + Math.max(0, fields.length - 1);
   for (const f of fields) {
-    if (!f || typeof f !== "object" || typeof f.name !== "string" || !IDENT.test(f.name) || typeof f.type !== "string") {
+    if (!f || typeof f !== "object" || typeof f.name !== "string" || typeof f.type !== "string") {
+      fail("E_FIELD_DEF", `${typeName}: bad field definition`);
+    }
+    chars += f.type.length + 1 + f.name.length;
+    if (chars > ENCODER_LIMITS.maxTypeChars) {
+      fail("E_COMPLEXITY", `type encoding exceeds ${ENCODER_LIMITS.maxTypeChars} characters`);
+    }
+    if (!IDENT.test(f.name)) {
       fail("E_FIELD_DEF", `${typeName}: bad field definition`);
     }
     if (RESERVED_FIELD_NAMES.has(f.name)) {
@@ -429,43 +461,47 @@ function checkFieldDefs(typeName: string, fields: FieldDef[]): void {
     }
     names.add(f.name);
   }
+  return chars;
 }
 
-/**
- * Walk the struct dependency graph reachable from `typeExpr`, collecting
- * every struct type name (including the entry type) into `visited`.
- * `stack` tracks the types currently being expanded on this DFS path; a
- * repeat hit against `stack` is a cycle (spec 10, E_TYPE_CYCLE).
- */
-function collectStructDeps(
-  typeExpr: string,
-  types: Record<string, FieldDef[]>,
-  visited: Set<string>,
-  stack: Set<string>
-): void {
-  const t = classifyType(typeExpr);
-  if (t.kind === "array") {
-    collectStructDeps(t.elem, types, visited, stack);
-    return;
+/** Collect one dependency closure, bounding work before descending or encoding. */
+function collectStructDeps(typeExpr: string, types: Record<string, FieldDef[]>): Set<string> {
+  const visited = new Set<string>();
+  const stack = new Set<string>();
+  let fieldCount = 0;
+  let chars = 0;
+
+  function walk(expr: string, depth: number): void {
+    checkDepth(depth);
+    const t = classifyType(expr);
+    if (t.kind === "array") {
+      walk(t.elem, depth + 1);
+      return;
+    }
+    if (t.kind === "atomic") return;
+    const name = t.name;
+    if (stack.has(name)) fail("E_TYPE_CYCLE", `type cycle involving ${name}`);
+    if (visited.has(name)) return;
+    if (visited.size + stack.size >= ENCODER_LIMITS.maxStructs) {
+      fail("E_COMPLEXITY", `dependency closure exceeds ${ENCODER_LIMITS.maxStructs} struct types`);
+    }
+    const fields = structFields(name, types);
+    fieldCount += fields.length;
+    if (fieldCount > ENCODER_LIMITS.maxFields) {
+      fail("E_COMPLEXITY", `dependency closure exceeds ${ENCODER_LIMITS.maxFields} fields`);
+    }
+    chars += checkFieldDefs(name, fields);
+    if (chars > ENCODER_LIMITS.maxTypeChars) {
+      fail("E_COMPLEXITY", `type encoding exceeds ${ENCODER_LIMITS.maxTypeChars} characters`);
+    }
+    stack.add(name);
+    for (const f of fields) walk(f.type, depth + 1);
+    stack.delete(name);
+    visited.add(name);
   }
-  if (t.kind === "atomic") {
-    return;
-  }
-  const name = t.name;
-  if (stack.has(name)) {
-    fail("E_TYPE_CYCLE", `type cycle involving ${name}`);
-  }
-  if (visited.has(name)) {
-    return;
-  }
-  const fields = structFields(name, types);
-  checkFieldDefs(name, fields);
-  stack.add(name);
-  for (const f of fields) {
-    collectStructDeps(f.type, types, visited, stack);
-  }
-  stack.delete(name);
-  visited.add(name);
+
+  walk(typeExpr, 1);
+  return visited;
 }
 
 function encodeTypeLocal(name: string, fields: FieldDef[]): string {
@@ -479,8 +515,7 @@ function encodeTypeLocal(name: string, fields: FieldDef[]): string {
  * name.
  */
 function encodeType(typeName: string, types: Record<string, FieldDef[]>): string {
-  const visited = new Set<string>();
-  collectStructDeps(typeName, types, visited, new Set());
+  const visited = collectStructDeps(typeName, types);
   const deps: string[] = [];
   for (const name of visited) {
     if (name !== typeName) {
@@ -496,28 +531,34 @@ function encodeType(typeName: string, types: Record<string, FieldDef[]>): string
   return parts.join("");
 }
 
-function typeHash(typeName: string, types: Record<string, FieldDef[]>): Uint8Array {
-  return sha256(utf8(encodeType(typeName, types)));
+function typeHash(typeName: string, types: Record<string, FieldDef[]>, hashes: Map<string, Uint8Array>): Uint8Array {
+  let hash = hashes.get(typeName);
+  if (!hash) {
+    hash = sha256(utf8(encodeType(typeName, types)));
+    hashes.set(typeName, hash);
+  }
+  return hash;
 }
 
 function structHash(
   typeName: string,
   values: unknown,
-  types: Record<string, FieldDef[]>
+  types: Record<string, FieldDef[]>,
+  hashes: Map<string, Uint8Array>,
+  depth = 1
 ): Uint8Array {
-  const th = typeHash(typeName, types);
+  const hash = sha256.create().update(typeHash(typeName, types, hashes));
   const fields = types[typeName]!;
   if (!isPlainObject(values)) {
     fail("E_VALUE_TYPE", `${typeName}: expected object value`);
   }
-  const parts: Uint8Array[] = [th];
   const seen = new Set<string>();
   for (const f of fields) {
     if (!Object.hasOwn(values, f.name)) {
       fail("E_FIELD_MISSING", `missing field ${typeName}.${f.name}`);
     }
     seen.add(f.name);
-    parts.push(encodeValue(f.type, values[f.name], types));
+    for (const part of encodeValue(f.type, values[f.name], types, hashes, depth + 1)) hash.update(part);
   }
   // Include non-enumerable and symbol keys in the own-property check (spec 6.3).
   for (const k of Reflect.ownKeys(values)) {
@@ -525,10 +566,15 @@ function structHash(
       fail("E_FIELD_EXTRA", `unexpected field ${typeName}.${String(k)}`);
     }
   }
-  return sha256(concat(...parts));
+  return hash.digest();
 }
 
-function encodeValue(typeExpr: string, value: unknown, types: Record<string, FieldDef[]>): Uint8Array {
+/** Arrays stream their original concatenated encoding without a JS argument list. */
+function* encodeValue(
+  typeExpr: string, value: unknown, types: Record<string, FieldDef[]>,
+  hashes: Map<string, Uint8Array>, depth: number
+): Generator<Uint8Array> {
+  checkDepth(depth);
   const t = classifyType(typeExpr);
   if (t.kind === "array") {
     if (!Array.isArray(value)) {
@@ -537,15 +583,17 @@ function encodeValue(typeExpr: string, value: unknown, types: Record<string, Fie
     if (value.length !== t.n) {
       fail("E_ARRAY_LENGTH", `${typeExpr}: expected length ${t.n}, got ${value.length}`);
     }
-    return concat(...value.map((v) => encodeValue(t.elem, v, types)));
+    for (const v of value) yield* encodeValue(t.elem, v, types, hashes, depth + 1);
+    return;
   }
   if (t.kind === "atomic") {
-    return encAtomic(t.name, value);
+    yield encAtomic(t.name, value);
+    return;
   }
   if (!isPlainObject(value)) {
     fail("E_VALUE_TYPE", `${t.name}: expected object`);
   }
-  return structHash(t.name, value, types);
+  yield structHash(t.name, value, types, hashes, depth);
 }
 
 function encAtomic(typeName: string, value: unknown): Uint8Array {

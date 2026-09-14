@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { bls12_381 } from "@noble/curves/bls12-381";
 
-import { hashTypedData, hashTypedDataHex, type HashTypedDataInput } from "../typed-data/hash.js";
+import { hashTypedData, hashTypedDataHex, TypedDataError, type HashTypedDataInput } from "../typed-data/hash.js";
 import {
   BLS_SIGN_DST,
   TYPED_DATA_SIG_TAG,
@@ -363,6 +363,21 @@ describe("./bls: verifyTypedDataSignature", () => {
   it("throws on an invalid typed-data payload (spec section 10)", () => {
     const input = baseInput({ primaryType: "DuskTypedDataDomain" });
     expect(() => verifyTypedDataSignature(input, `0x${"00".repeat(48)}`, TEST_PK_HEX, ANY)).toThrow();
+  });
+
+  it("reports coded structural refusal through the public verifier", () => {
+    const input = baseInput();
+    const { signatureHex } = signTypedDataInput(input, TEST_SK);
+    expect(verifyTypedDataSignature(input, signatureHex, TEST_PK_HEX, ACCEPTING_POLICY).ok).toBe(true);
+    input.types.Greeting = [{ name: "text", type: `uint8${"[1]".repeat(100)}` }];
+    try {
+      verifyTypedDataSignature(input, signatureHex, TEST_PK_HEX, ACCEPTING_POLICY);
+    } catch (error) {
+      expect(error).toBeInstanceOf(TypedDataError);
+      expect(error).toMatchObject({ code: "E_COMPLEXITY" });
+      return;
+    }
+    throw new Error("Expected structural refusal");
   });
 
   it("throws on a malformed signatureHex", () => {

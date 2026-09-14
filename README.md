@@ -81,7 +81,11 @@ permissions, obtain approval, and recheck the signing context. Import
 resource check; it is not exported from the root and hashing does not apply it.
 Verifiers must support otherwise-valid inputs within the spec's resource floor,
 but may decline larger requests at their transport boundary. Invalid typed data
-throws `TypedDataError` with an `E_*` code.
+throws `TypedDataError` with an `E_*` code. The reference encoder also refuses
+excessive structural work with `E_COMPLEXITY` on hash/debug/verification paths;
+see [its documented above-floor guards](docs/typed-data-v1.md#111-reference-encoder-structural-guards).
+This does not apply signer limits or change accepted digests. The initial
+`validateTypedDataParams` shape check is not a full graph or resource check.
 
 `buildTypedDataSignedMessage` constructs the tagged bytes a wallet signs.
 `verifyBlsDigest` verifies a bare digest; it must not be used to verify typed-data

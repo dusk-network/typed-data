@@ -465,8 +465,45 @@ Rules:
 - Limits MUST NOT influence the digest. Two implementations that both accept a
   payload MUST produce the same digest regardless of their limits.
 
-This confines resource policy to the transport boundary, where implementations may
-differ safely, and keeps it out of the consensus rules, where they may not.
+This keeps resource refusal distinct from input validity and digest computation.
+Transport limits and encoder work guards may differ above the floor; two
+implementations that accept an input still MUST produce the same digest.
+
+### 11.1 Reference encoder structural guards
+
+The reference library bounds structural work internally, including when called
+through the public hash, debug and BLS verification entry points. These guards do
+not call the optional signer-policy helper. They throw `TypedDataError` with code
+`E_COMPLEXITY`, not an uncoded stack-exhaustion exception:
+
+| Measurement | Reference maximum (inclusive) |
+|-------------|-------------------------------|
+| Recursive dependency/value traversal depth, roots at 1 | 64 |
+| Distinct structs in each dependency closure | 128 |
+| Total declared fields across each dependency closure | 8,192 |
+| Characters in each `encodeType` / individual type expression | 1,048,576 |
+
+Dependency traversal counts entering a field type or unwrapping an array as one
+level. Value traversal counts entering a field value or array element as one level,
+including atomic leaves. Shared dependencies are visited once per closure; value
+depth is also checked during encoding so a shared type cannot hide a longer path.
+Type-encoding characters are ASCII after validation, including punctuation and
+spaces. Unreachable schema entries do not contribute. The domain and primary
+message closures are walked separately; signer policy still counts their union.
+
+These maxima are reference-implementation resource refusals **above** the existing
+interoperability floor, not new universal validity ceilings. Other implementations
+MAY use different above-floor limits. Earlier reference versions could hash some
+inputs now refused with `E_COMPLEXITY`; accepted inputs retain their exact encoding.
+Every otherwise-valid JSON input within the floor fits these guards. A future
+universal ceiling would need a separate normative acceptance decision and vectors.
+
+Type hashes are reused only within one call, complementing the bounds for distinct
+types. Array/field encodings feed the existing incremental SHA-256 operation without
+building an unbounded JavaScript argument list. These guards are not a wall-clock
+or peak-memory guarantee: string/bytes contents and total value count still require
+work, and applications remain responsible for transport size/rate limits. The
+initial `validateTypedDataParams` shape check alone does not walk the full graph.
 
 ---
 

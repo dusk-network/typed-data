@@ -14,6 +14,7 @@
 
 ### Changed
 
+- Refuse excessive encoder structure with coded `E_COMPLEXITY` errors above the interoperability floor. ([#6])
 - Defined resource-floor measurements without changing the reference policy's acceptance behavior. ([#2])
 - Clarified the compact-JSON size diagnostic while retaining `E_POLICY_LIMIT`. ([#2])
 - Separated package publication from an explicit protocol-freeze declaration. ([wallet#22])
@@ -30,6 +31,7 @@
 
 ### Fixed
 
+- Stream array/field encoding without JavaScript argument-spread limits. ([#6])
 - Bound verification policy checks and returned context to the values used in the digest. ([wallet#22])
 - Rejected undeclared symbol-keyed fields in typed-data structs. ([wallet#22])
 - Rejected non-string origins returned by accessors during hashing. ([wallet#22])
@@ -38,4 +40,5 @@ The package version `0.1.0-next.0` is an unpublished integration candidate, not 
 
 [#2]: https://github.com/dusk-network/typed-data/issues/2
 [#4]: https://github.com/dusk-network/typed-data/issues/4
+[#6]: https://github.com/dusk-network/typed-data/issues/6
 [wallet#22]: https://github.com/dusk-network/wallet/issues/22

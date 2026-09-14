@@ -2,6 +2,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { sha256 } from "@noble/hashes/sha2";
+import { bytesToHex, concatBytes } from "@noble/hashes/utils";
 
 import {
   checkPolicyLimits,
@@ -375,6 +377,117 @@ describe("checkPolicyLimits (spec section 11)", () => {
       origin,
     };
     expectCode(() => checkPolicyLimits(input), "E_POLICY_LIMIT");
+  });
+});
+
+describe("encoder structural guards", () => {
+  function chain(count: number) {
+    const types: Record<string, Array<{ name: string; type: string }>> = { ...domainTypes };
+    let message: Record<string, unknown> = {};
+    for (let i = count - 1; i >= 0; i--) {
+      types[`L${i}`] = i === count - 1 ? [] : [{ name: "next", type: `L${i + 1}` }];
+      if (i < count - 1) message = { next: message };
+    }
+    return { domain, origin, types, primaryType: "L0", message };
+  }
+
+  it("accepts depth 64 and refuses depth 65 consistently", () => {
+    const input = chain(64);
+    expect(hashTypedDataDebug(input).digestHex).toBe(hashTypedDataHex(input));
+    for (const hash of [hashTypedData, hashTypedDataHex, hashTypedDataDebug]) {
+      expectCode(() => hash(chain(65)), "E_COMPLEXITY");
+    }
+  });
+
+  it("refuses a deep schema before reading its remaining definitions, including through policy", () => {
+    const input = chain(5000);
+    input.message = {};
+    validateTypedDataParams(input); // Initial shape checking is not a full graph walk.
+    let reached = false;
+    Object.defineProperty(input.types, "L64", { get() { reached = true; throw new Error("walk continued"); } });
+    for (const check of [hashTypedData, hashTypedDataHex, hashTypedDataDebug, checkPolicyLimits]) {
+      expectCode(() => check(input), "E_COMPLEXITY");
+    }
+    expect(reached).toBe(false);
+  });
+
+  it("bounds nested array expressions as well as struct chains", () => {
+    const input = { domain, origin, primaryType: "S", message: { value: 1 },
+      types: { ...domainTypes, S: [{ name: "value", type: `uint8${"[1]".repeat(5000)}` }] } };
+    for (const check of [hashTypedData, hashTypedDataDebug, checkPolicyLimits]) {
+      expectCode(() => check(input), "E_COMPLEXITY");
+    }
+  });
+
+  it("bounds each dependency closure at 128 distinct structs, independently of unused types", () => {
+    for (const count of [127, 128]) {
+      const names = Array.from({ length: count }, (_, i) => `T${i}`);
+      const input = { domain, origin, primaryType: "S",
+        types: { ...domainTypes, S: names.map(name => ({ name, type: name })),
+          ...Object.fromEntries(names.map(name => [name, []])), Ignored: [{ name: "bad", type: "NoSuchType" }] },
+        message: Object.fromEntries(names.map(name => [name, {}])) };
+      for (const hash of [hashTypedData, hashTypedDataHex, hashTypedDataDebug]) {
+        if (count === 127) expect(() => hash(input)).not.toThrow();
+        else expectCode(() => hash(input), "E_COMPLEXITY");
+      }
+    }
+  });
+
+  it("bounds the total fields across a dependency closure at 8192", () => {
+    for (const count of [8191, 8192]) {
+      const fields = Array.from({ length: count }, (_, i) => ({ name: `f${i}`, type: "uint8" }));
+      const input = { domain, origin, primaryType: "S",
+        types: { ...domainTypes, S: [{ name: "child", type: "Child" }], Child: fields },
+        message: { child: Object.fromEntries(fields.map(field => [field.name, 1])) } };
+      if (count === 8191) expect(hashTypedDataDebug(input).digestHex).toBe(hashTypedDataHex(input));
+      else expectCode(() => hashTypedDataHex(input), "E_COMPLEXITY");
+    }
+  });
+
+  it("checks value depth even when a shared dependency was visited on a shorter path", () => {
+    const input = chain(63);
+    const next = input.message;
+    input.types.Root = [{ name: "first", type: "L0" }, { name: "second", type: "More" }];
+    input.types.More = [{ name: "next", type: "L0" }];
+    input.primaryType = "Root";
+    input.message = { first: next, second: { next } };
+    for (const hash of [hashTypedData, hashTypedDataHex, hashTypedDataDebug]) {
+      expectCode(() => hash(input), "E_COMPLEXITY");
+    }
+  });
+
+  it("bounds type-encoding text at 1048576 characters without bounding string values", () => {
+    for (const length of [1048576 - 9, 1048576 - 8]) {
+      const name = "x".repeat(length); // S(uint8 <name>) adds nine ASCII characters.
+      const input = { domain, origin, primaryType: "S",
+        types: { ...domainTypes, S: [{ name, type: "uint8" }] }, message: { [name]: 1 } };
+      if (length === 1048576 - 9) expect(() => hashTypedDataHex(input)).not.toThrow();
+      else expectCode(() => hashTypedDataHex(input), "E_COMPLEXITY");
+    }
+  });
+
+  it("streams wide arrays without a native argument-spread limit", () => {
+    const count = 140000;
+    const input = { domain, origin, primaryType: "S",
+      types: { ...domainTypes, S: [{ name: "values", type: `uint8[${count}]` }] },
+      message: { values: Array(count).fill(1) } };
+    const typeHash = sha256(new TextEncoder().encode(`S(uint8[${count}] values)`));
+    const expected = `0x${bytesToHex(sha256(concatBytes(typeHash, new Uint8Array(count).fill(1))))}`;
+    expect(hashTypedDataDebug(input).structHash).toBe(expected);
+    expectCode(() => checkPolicyLimits(input), "E_POLICY_LIMIT");
+  });
+
+  it("reuses a type hash for repeated values only within the current call", () => {
+    const fields = [{ name: "value", type: "uint8" }];
+    let reads = 0;
+    const input = { domain, origin, primaryType: "S",
+      types: { ...domainTypes, S: [{ name: "values", type: "Leaf[512]" }], get Leaf() { reads++; return fields; } },
+      message: { values: Array(512).fill({ value: 1 }) as Record<string, number>[] } };
+    const first = hashTypedDataHex(input);
+    expect(reads).toBeLessThan(1024);
+    fields[0]!.name = "other";
+    input.message.values = Array(512).fill({ other: 1 });
+    expect(hashTypedDataHex(input)).not.toBe(first);
   });
 });
 
