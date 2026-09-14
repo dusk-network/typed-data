@@ -107,7 +107,17 @@ const ENCODER_LIMITS = {
   maxStructs: 128,
   maxFields: 8192,
   maxTypeChars: 1048576,
+  maxValueVisits: 262144,
 };
+
+type ValueBudget = { visits: number };
+
+function visitValue(budget: ValueBudget): void {
+  // ponytail: visit count only; byte-work limits need a separate floor-preserving budget.
+  if (++budget.visits > ENCODER_LIMITS.maxValueVisits) {
+    fail("E_COMPLEXITY", `typed-data value visits exceed ${ENCODER_LIMITS.maxValueVisits}`);
+  }
+}
 
 function fail(code: TypedDataErrorCode, message: string): never {
   throw new TypedDataError(code, message);
@@ -176,8 +186,9 @@ export function checkPolicyLimits(input: HashTypedDataInput): void {
     }
   }
 
-  walkValueForPolicy(DOMAIN_TYPE, domainMessage(input.domain), types, 1);
-  walkValueForPolicy(input.primaryType, input.message, types, 1);
+  const budget = { visits: 0 };
+  walkValueForPolicy(DOMAIN_TYPE, domainMessage(input.domain), types, budget, 1);
+  walkValueForPolicy(input.primaryType, input.message, types, budget, 1);
 
   // Compact JSON UTF-8 bytes, including hex text and unused metadata (spec 11).
   // This is not the sum of decoded field bytes or a peak-memory bound.
@@ -194,8 +205,10 @@ function walkValueForPolicy(
   typeExpr: string,
   value: unknown,
   types: Record<string, FieldDef[]>,
+  budget: ValueBudget,
   depth: number
 ): void {
+  visitValue(budget);
   if (depth > POLICY_LIMITS.maxNestingDepth) {
     fail("E_POLICY_LIMIT", `nesting depth exceeds floor ${POLICY_LIMITS.maxNestingDepth}`);
   }
@@ -212,7 +225,7 @@ function walkValueForPolicy(
       );
     }
     for (let i = 0; i < length; i++) {
-      walkValueForPolicy(t.elem, value[i], types, depth + 1);
+      walkValueForPolicy(t.elem, value[i], types, budget, depth + 1);
     }
     return;
   }
@@ -235,7 +248,7 @@ function walkValueForPolicy(
   for (let i = 0, n = fields.length; i < n; i++) {
     const f = fields[i]!;
     if (Object.hasOwn(value, f.name)) {
-      walkValueForPolicy(f.type, value[f.name], types, depth + 1);
+      walkValueForPolicy(f.type, value[f.name], types, budget, depth + 1);
     }
   }
 }
@@ -274,13 +287,14 @@ export function hashTypedDataDebug(input: HashTypedDataInput): HashTypedDataDebu
   const types = input.types;
   const domainValues = domainMessage(input.domain);
   const hashes = new Map<string, Uint8Array>();
+  const budget = { visits: 0 };
 
   // Compute the digest stages in the same order as `hashTypedDataWithContext`, so that an
   // input violating several rules at once reports the same error code from
   // both entry points (spec section 10, "Reporting order").
-  const domainSeparator = structHash(DOMAIN_TYPE, domainValues, types, hashes);
+  const domainSeparator = structHash(DOMAIN_TYPE, domainValues, types, hashes, budget);
   const originBind = originBindHash(input.origin);
-  const structHashPrimary = structHash(input.primaryType, input.message, types, hashes);
+  const structHashPrimary = structHash(input.primaryType, input.message, types, hashes, budget);
 
   const reachable = new Set([
     ...collectStructDeps(DOMAIN_TYPE, types),
@@ -307,10 +321,11 @@ export function hashTypedDataWithContext(input: HashTypedDataInput) {
   const types = input.types;
   const domainValues = domainMessage(input.domain);
   const hashes = new Map<string, Uint8Array>();
-  const domainSeparator = structHash(DOMAIN_TYPE, domainValues, types, hashes);
+  const budget = { visits: 0 };
+  const domainSeparator = structHash(DOMAIN_TYPE, domainValues, types, hashes, budget);
   const origin = input.origin;
   const originBind = originBindHash(origin);
-  const structHashPrimary = structHash(input.primaryType, input.message, types, hashes);
+  const structHashPrimary = structHash(input.primaryType, input.message, types, hashes, budget);
   const digest = sha256(concat(PREAMBLE, domainSeparator, originBind, structHashPrimary));
   return { digest, chainId: domainValues.chainId, origin };
 }
@@ -554,8 +569,10 @@ function structHash(
   values: unknown,
   types: Record<string, FieldDef[]>,
   hashes: Map<string, Uint8Array>,
+  budget: ValueBudget,
   depth = 1
 ): Uint8Array {
+  visitValue(budget);
   const hash = sha256.create().update(typeHash(typeName, types, hashes));
   const fields = types[typeName]!;
   if (!isPlainObject(values)) {
@@ -568,7 +585,7 @@ function structHash(
       fail("E_FIELD_MISSING", `missing field ${typeName}.${f.name}`);
     }
     seen.add(f.name);
-    for (const part of encodeValue(f.type, values[f.name], types, hashes, depth + 1)) hash.update(part);
+    for (const part of encodeValue(f.type, values[f.name], types, hashes, budget, depth + 1)) hash.update(part);
   }
   // Include non-enumerable and symbol keys in the own-property check (spec 6.3).
   for (const k of Reflect.ownKeys(values)) {
@@ -582,10 +599,12 @@ function structHash(
 /** Arrays stream their indexed concatenated encoding without a JS argument list. */
 function* encodeValue(
   typeExpr: string, value: unknown, types: Record<string, FieldDef[]>,
-  hashes: Map<string, Uint8Array>, depth: number
+  hashes: Map<string, Uint8Array>, budget: ValueBudget, depth: number
 ): Generator<Uint8Array> {
   checkDepth(depth);
   const t = classifyType(typeExpr);
+  // Struct visits are charged in structHash, including the two root structs.
+  if (t.kind !== "struct") visitValue(budget);
   if (t.kind === "array") {
     if (!Array.isArray(value)) {
       fail("E_VALUE_TYPE", `${typeExpr}: expected array`);
@@ -594,7 +613,7 @@ function* encodeValue(
       fail("E_ARRAY_LENGTH", `${typeExpr}: expected length ${t.n}, got ${value.length}`);
     }
     for (let i = 0; i < t.n; i++) {
-      yield* encodeValue(t.elem, value[i], types, hashes, depth + 1);
+      yield* encodeValue(t.elem, value[i], types, hashes, budget, depth + 1);
     }
     return;
   }
@@ -605,7 +624,7 @@ function* encodeValue(
   if (!isPlainObject(value)) {
     fail("E_VALUE_TYPE", `${t.name}: expected object`);
   }
-  yield structHash(t.name, value, types, hashes, depth);
+  yield structHash(t.name, value, types, hashes, budget, depth);
 }
 
 function encAtomic(typeName: string, value: unknown): Uint8Array {

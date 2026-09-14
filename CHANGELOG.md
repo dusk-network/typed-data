@@ -14,6 +14,7 @@
 
 ### Changed
 
+- Bound per-call typed-value visits, including shared arrays and structs, with `E_COMPLEXITY` while preserving the JSON interoperability floor. ([#6])
 - Require all implementations to report `E_COMPLEXITY` for above-floor encoder structural refusals. ([#6])
 - Refuse excessive encoder structure with coded `E_COMPLEXITY` errors above the interoperability floor. ([#6])
 - Require relying applications to enforce single-use and time-bounded authorization semantics. ([#7])

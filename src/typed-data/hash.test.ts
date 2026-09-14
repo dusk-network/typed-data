@@ -657,6 +657,108 @@ describe("encoder structural guards", () => {
   });
 });
 
+describe("encoder total-value budget", () => {
+  function arrayInput(type: string, values: unknown): HashTypedDataInput {
+    return { domain, origin, primaryType: "S",
+      types: { ...domainTypes, S: [{ name: "values", type }] }, message: { values } };
+  }
+
+  function arrayStructHash(type: string, bytes: Uint8Array): string {
+    return `0x${bytesToHex(sha256(concatBytes(
+      sha256(new TextEncoder().encode(`S(${type} values)`)), bytes,
+    )))}`;
+  }
+
+  it("counts both roots, arrays and atomics with an inclusive per-call limit", () => {
+    // Domain root + four fields + primary root + array = seven visits.
+    const count = 262144 - 7;
+    const input = arrayInput(`uint8[${count}]`, Array(count).fill(1));
+    const debug = hashTypedDataDebug(input);
+    expect(debug.structHash).toBe(arrayStructHash(`uint8[${count}]`, new Uint8Array(count).fill(1)));
+    expect(hashTypedDataHex(input)).toBe(debug.digestHex);
+    expect(`0x${bytesToHex(hashTypedData(input).digest)}`).toBe(debug.digestHex);
+    const over = arrayInput(`uint8[${count + 1}]`, Array(count + 1).fill(1));
+    for (const hash of [hashTypedData, hashTypedDataHex, hashTypedDataDebug]) {
+      expectCode(() => hash(over), "E_COMPLEXITY");
+    }
+    // Refusal must not poison a later call's budget.
+    const small = loadVector("sign_in_basic.json");
+    expect(hashTypedDataHex(small.input)).toBe(small.digestHex);
+  });
+
+  it("charges every shared array container as well as its atomic leaves", () => {
+    const count = (262144 - 7) / 3;
+    // Each outer element visits two shared array containers and one atomic.
+    const input = arrayInput(`uint8[1][1][${count}]`, Array(count).fill([[1]]));
+    expect(hashTypedDataDebug(input).structHash).toBe(arrayStructHash(
+      `uint8[1][1][${count}]`, new Uint8Array(count).fill(1),
+    ));
+    expectCode(() => hashTypedDataHex(arrayInput(
+      `uint8[1][1][${count + 1}]`, Array(count + 1).fill([[1]]),
+    )), "E_COMPLEXITY");
+  });
+
+  it("charges shared empty structs exactly once per path, even with cached type hashes", () => {
+    const count = 262144 - 7;
+    const input = arrayInput(`Leaf[${count}]`, Array(count).fill({}));
+    input.types.Leaf = [];
+    const leafHash = sha256(sha256(new TextEncoder().encode("Leaf()")));
+    const expected = sha256.create().update(sha256(new TextEncoder().encode(`S(Leaf[${count}] values)Leaf()`)));
+    for (let i = 0; i < count; i++) expected.update(leafHash);
+    expect(hashTypedDataDebug(input).structHash).toBe(`0x${bytesToHex(expected.digest())}`);
+    const over = arrayInput(`Leaf[${count + 1}]`, Array(count + 1).fill({}));
+    over.types.Leaf = [];
+    expectCode(() => hashTypedDataHex(over), "E_COMPLEXITY");
+  }, 15000);
+
+  it.each(["arrays", "structs"])("bounds cloned shared %s before policy JSON serialization", kind => {
+    let values: unknown = kind === "arrays" ? 0 : {};
+    for (let i = 0; i < 3; i++) values = Array(64).fill(values);
+    const input = structuredClone(arrayInput(`${kind === "arrays" ? "uint8" : "Leaf"}[64][64][64]`, values));
+    if (kind === "structs") input.types.Leaf = [];
+    const outer = input.message.values as unknown[];
+    expect(outer[0]).toBe(outer[1]); // Structured clone preserves aliases.
+    validateTypedDataParams(input); // Shape checking is still not a value walk.
+    Object.defineProperty(input, "toJSON", {
+      value() { throw new Error("serialization reached before typed-value refusal"); },
+    });
+    // All individual array lengths, depths and schema dimensions fit the signer
+    // floor; the expanded value tree does not fit its compact-JSON byte limit.
+    for (const check of [hashTypedData, hashTypedDataHex, hashTypedDataDebug, checkPolicyLimits]) {
+      expectCode(() => check(input), "E_COMPLEXITY");
+    }
+  }, 15000);
+
+  it("shares the same inclusive budget across both policy roots", () => {
+    // 6 root/domain visits + 261125 + 772 + 241 = 262144.
+    const input = arrayInput("uint8[255][255][4]", Array(4).fill(Array(255).fill(Array(255).fill(0))));
+    input.types.S!.push({ name: "b", type: "uint8[256][3]" }, { name: "c", type: "uint8[240]" });
+    input.message.b = Array(3).fill(Array(256).fill(0));
+    input.message.c = Array(240).fill(0);
+    // The visit walk fits; the expanded JSON does not fit signer policy.
+    expectCode(() => checkPolicyLimits(input), "E_POLICY_LIMIT");
+    expect(() => checkPolicyLimits(input)).toThrow("compact JSON input");
+    input.types.S!.push({ name: "extra", type: "bool" });
+    input.message.extra = false;
+    expectCode(() => checkPolicyLimits(input), "E_COMPLEXITY");
+  });
+
+  it("preserves dense floor-sized JSON inputs and their alias-preserving equivalents", () => {
+    const type = "uint8[256][254][2]";
+    const input = { ...arrayInput(type, Array(2).fill(Array(254).fill(Array(256).fill(0)))), metadata: "" };
+    const length = Buffer.byteLength(JSON.stringify(input));
+    expect(length).toBeLessThanOrEqual(262144);
+    input.metadata = "x".repeat(262144 - length);
+    const wire = JSON.stringify(input);
+    expect(Buffer.byteLength(wire)).toBe(262144);
+    const parsed = JSON.parse(wire);
+    for (const value of [input, parsed]) expect(() => checkPolicyLimits(value)).not.toThrow();
+    const debug = hashTypedDataDebug(parsed);
+    expect(debug.structHash).toBe(arrayStructHash(type, new Uint8Array(256 * 254 * 2)));
+    expect(hashTypedDataHex(input)).toBe(debug.digestHex);
+  });
+});
+
 describe("encoding boundaries", () => {
   it.each([
     ["a,uint8 b", "c"],

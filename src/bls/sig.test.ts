@@ -449,6 +449,19 @@ describe("./bls: verifyTypedDataSignature", () => {
     throw new Error("Expected structural refusal");
   });
 
+  it("propagates total-value refusal rather than returning a signature failure", () => {
+    const small = baseInput();
+    const { signatureHex } = signTypedDataInput(small, TEST_SK);
+    const count = 262144 - 6; // Seven non-element visits put this one over budget.
+    const over = baseInput({
+      types: { ...domainTypes, Greeting: [{ name: "values", type: `uint8[${count}]` }] },
+      message: { values: Array(count).fill(0) },
+    });
+    expect(() => verifyTypedDataSignature(over, signatureHex, TEST_PK_HEX, ACCEPTING_POLICY))
+      .toThrowError(expect.objectContaining({ code: "E_COMPLEXITY" }));
+    expect(verifyTypedDataSignature(small, signatureHex, TEST_PK_HEX, ACCEPTING_POLICY).ok).toBe(true);
+  });
+
   it("throws on a malformed signatureHex", () => {
     const input = baseInput();
     expect(() => verifyTypedDataSignature(input, "not-hex", TEST_PK_HEX, ANY)).toThrow();
