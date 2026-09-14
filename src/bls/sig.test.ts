@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { bls12_381 } from "@noble/curves/bls12-381";
 
-import { hashTypedData, hashTypedDataHex, TypedDataError, type HashTypedDataInput } from "../typed-data/hash.js";
+import { hashTypedData, hashTypedDataHex, hashTypedDataDebug, TypedDataError, type HashTypedDataInput } from "../typed-data/hash.js";
 import {
   BLS_SIGN_DST,
   TYPED_DATA_SIG_TAG,
@@ -196,6 +197,51 @@ describe("./bls: verifyTypedDataSignature", () => {
     expect(verifyTypedDataSignature(input, signatureForOne, TEST_PK_HEX, ACCEPTING_POLICY)).toMatchObject({
       ok: true, code: "OK", digestHex: hashTypedDataHex(plain),
     });
+  });
+
+  it("rejects a signature for different indexed values despite a reversed field iterator", () => {
+    const input = baseInput({
+      primaryType: "Msg", types: { ...domainTypes, Msg: [
+        { name: "a", type: "uint64" }, { name: "b", type: "uint64" },
+      ] }, message: { a: 2, b: 1 },
+    });
+    const { signatureHex } = signTypedDataInput(input, TEST_SK);
+    expect(verifyTypedDataSignature(input, signatureHex, TEST_PK_HEX, ACCEPTING_POLICY).ok).toBe(true);
+    input.message = { a: 1, b: 2 };
+    const plain = structuredClone(input);
+    Object.defineProperty(input.types.Msg, Symbol.iterator, {
+      value: function* () { yield this[1]; yield this[0]; },
+    });
+    expect(verifyTypedDataSignature(input, signatureHex, TEST_PK_HEX, ACCEPTING_POLICY)).toMatchObject({
+      ok: false, code: "E_SIG_INVALID", digestHex: hashTypedDataHex(plain),
+    });
+    const { signatureHex: correctSignature } = signTypedDataInput(plain, TEST_SK);
+    expect(verifyTypedDataSignature(input, correctSignature, TEST_PK_HEX, ACCEPTING_POLICY)).toMatchObject({
+      ok: true, code: "OK", digestHex: hashTypedDataHex(plain),
+    });
+  });
+
+  it("rejects an omitted indexed field even with a genuine signature over that malformed preimage", () => {
+    const input = baseInput({
+      primaryType: "Msg", types: { ...domainTypes, Msg: [
+        { name: "a", type: "uint64" }, { name: "b", type: "uint64" },
+      ] }, message: { a: 1, b: 2 },
+    });
+    const debug = hashTypedDataDebug(input);
+    const a = Buffer.alloc(8);
+    a.writeBigUInt64BE(1n);
+    const typeHash = createHash("sha256").update("Msg(uint64 a,uint64 b)").digest();
+    const omittedStructHash = createHash("sha256").update(typeHash).update(a).digest();
+    const digest = createHash("sha256").update("DUSK_TYPED_DATA_V1\0")
+      .update(Buffer.from(debug.domainSeparator.slice(2), "hex"))
+      .update(Buffer.from(debug.originBind.slice(2), "hex")).update(omittedStructHash).digest();
+    const signature = `0x${bytesToHex(signRaw(taggedMessage(digest), TEST_SK))}`;
+    delete input.message.b;
+    Object.defineProperty(input.types.Msg, Symbol.iterator, {
+      value: function* () { yield this[0]; },
+    });
+    expect(() => verifyTypedDataSignature(input, signature, TEST_PK_HEX, ACCEPTING_POLICY))
+      .toThrowError(expect.objectContaining({ code: "E_FIELD_MISSING" }));
   });
 
   it("captures the expected policy before hashing can invoke a message getter", () => {

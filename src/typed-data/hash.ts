@@ -204,14 +204,15 @@ function walkValueForPolicy(
     if (!Array.isArray(value)) {
       return;
     }
-    if (value.length > POLICY_LIMITS.maxArrayElements) {
+    const length = value.length;
+    if (length > POLICY_LIMITS.maxArrayElements) {
       fail(
         "E_POLICY_LIMIT",
-        `array length ${value.length} exceeds floor ${POLICY_LIMITS.maxArrayElements}`
+        `array length ${length} exceeds floor ${POLICY_LIMITS.maxArrayElements}`
       );
     }
-    for (const v of value) {
-      walkValueForPolicy(t.elem, v, types, depth + 1);
+    for (let i = 0; i < length; i++) {
+      walkValueForPolicy(t.elem, value[i], types, depth + 1);
     }
     return;
   }
@@ -231,7 +232,8 @@ function walkValueForPolicy(
     return;
   }
   const fields = types[t.name] ?? [];
-  for (const f of fields) {
+  for (let i = 0, n = fields.length; i < n; i++) {
+    const f = fields[i]!;
     if (Object.hasOwn(value, f.name)) {
       walkValueForPolicy(f.type, value[f.name], types, depth + 1);
     }
@@ -442,7 +444,8 @@ function structFields(typeName: string, types: Record<string, FieldDef[]>): Fiel
 function checkFieldDefs(typeName: string, fields: FieldDef[]): number {
   const names = new Set<string>();
   let chars = typeName.length + 2 + Math.max(0, fields.length - 1);
-  for (const f of fields) {
+  for (let i = 0, n = fields.length; i < n; i++) {
+    const f = fields[i];
     if (!f || typeof f !== "object" || typeof f.name !== "string" || typeof f.type !== "string") {
       fail("E_FIELD_DEF", `${typeName}: bad field definition`);
     }
@@ -495,7 +498,9 @@ function collectStructDeps(typeExpr: string, types: Record<string, FieldDef[]>):
       fail("E_COMPLEXITY", `type encoding exceeds ${ENCODER_LIMITS.maxTypeChars} characters`);
     }
     stack.add(name);
-    for (const f of fields) walk(f.type, depth + 1);
+    for (let i = 0, n = fields.length; i < n; i++) {
+      walk(fields[i]!.type, depth + 1);
+    }
     stack.delete(name);
     visited.add(name);
   }
@@ -505,8 +510,12 @@ function collectStructDeps(typeExpr: string, types: Record<string, FieldDef[]>):
 }
 
 function encodeTypeLocal(name: string, fields: FieldDef[]): string {
-  const inner = fields.map((f) => `${f.type} ${f.name}`).join(",");
-  return `${name}(${inner})`;
+  const parts: string[] = [];
+  for (let i = 0, n = fields.length; i < n; i++) {
+    const f = fields[i]!;
+    parts.push(`${f.type} ${f.name}`);
+  }
+  return `${name}(${parts.join(",")})`;
 }
 
 /**
@@ -553,7 +562,8 @@ function structHash(
     fail("E_VALUE_TYPE", `${typeName}: expected object value`);
   }
   const seen = new Set<string>();
-  for (const f of fields) {
+  for (let i = 0, n = fields.length; i < n; i++) {
+    const f = fields[i]!;
     if (!Object.hasOwn(values, f.name)) {
       fail("E_FIELD_MISSING", `missing field ${typeName}.${f.name}`);
     }

@@ -493,17 +493,25 @@ message closures are walked separately; signer policy still counts their union.
 
 These maxima are reference-implementation resource refusals **above** the existing
 interoperability floor, not new universal validity ceilings. Other implementations
-MAY use different above-floor limits. Earlier reference versions could hash some
-inputs now refused with `E_COMPLEXITY`; accepted inputs retain their exact encoding.
+MAY use different above-floor limits. An implementation that refuses an above-floor
+input for encoder structural resource reasons MUST report `E_COMPLEXITY`. The
+threshold is local; the code is not. This is distinct from optional signer-policy
+rejection (`E_POLICY_LIMIT`). Earlier reference versions could hash some inputs now
+refused with `E_COMPLEXITY`; accepted inputs retain their exact encoding.
 Every otherwise-valid JSON input within the floor fits these guards. A future
 universal ceiling would need a separate normative acceptance decision and vectors.
 
 Type hashes are reused only within one call, complementing the bounds for distinct
 types. Array/field encodings feed the existing incremental SHA-256 operation without
-building an unbounded JavaScript argument list. These guards are not a wall-clock
-or peak-memory guarantee: string/bytes contents and total value count still require
-work, and applications remain responsible for transport size/rate limits. The
-initial `validateTypedDataParams` shape check alone does not walk the full graph.
+building an unbounded JavaScript argument list. These guards do not bound total
+value work: shared objects and arrays are re-encoded per path, potentially expanding
+exponentially in a compact object graph. JSON text cannot express shared references;
+in-process inputs and structured-clone transports can preserve them.
+
+These guards are not a wall-clock or peak-memory guarantee: string/bytes contents
+and total value count still require work, and applications remain responsible for
+transport size/rate limits. The initial `validateTypedDataParams` shape check alone
+does not walk the full graph.
 
 ---
 
