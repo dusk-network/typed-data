@@ -32,6 +32,7 @@
 
 ### Fixed
 
+- Encode fixed arrays by index rather than caller-replaceable iterators. ([#6])
 - Stream array/field encoding without JavaScript argument-spread limits. ([#6])
 - Bound verification policy checks and returned context to the values used in the digest. ([wallet#22])
 - Rejected undeclared symbol-keyed fields in typed-data structs. ([wallet#22])

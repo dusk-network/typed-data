@@ -569,7 +569,7 @@ function structHash(
   return hash.digest();
 }
 
-/** Arrays stream their original concatenated encoding without a JS argument list. */
+/** Arrays stream their indexed concatenated encoding without a JS argument list. */
 function* encodeValue(
   typeExpr: string, value: unknown, types: Record<string, FieldDef[]>,
   hashes: Map<string, Uint8Array>, depth: number
@@ -583,7 +583,9 @@ function* encodeValue(
     if (value.length !== t.n) {
       fail("E_ARRAY_LENGTH", `${typeExpr}: expected length ${t.n}, got ${value.length}`);
     }
-    for (const v of value) yield* encodeValue(t.elem, v, types, hashes, depth + 1);
+    for (let i = 0; i < t.n; i++) {
+      yield* encodeValue(t.elem, value[i], types, hashes, depth + 1);
+    }
     return;
   }
   if (t.kind === "atomic") {

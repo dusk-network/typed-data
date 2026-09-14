@@ -111,6 +111,41 @@ describe("string/bytes encoding (spec 5.1)", () => {
   });
 });
 
+describe("fixed-array indexed encoding (spec 5.3)", () => {
+  it.each([["replacement", [2]], ["empty", []], ["extra", [1, 2]]] as const)(
+    "ignores a custom %s iterator", (_name, yielded) => {
+      const items = Object.defineProperty([1], Symbol.iterator, {
+        value: function* () { yield* yielded; },
+      });
+      const input = {
+        domain, origin, primaryType: "A",
+        types: { ...domainTypes, A: [{ name: "items", type: "uint8[1]" }] },
+        message: { items },
+      };
+      const plain = { ...input, message: { items: [1] } };
+      expect(items[0]).toBe(1);
+      expect(JSON.stringify(items)).toBe("[1]");
+      expect(hashTypedData(input)).toEqual(hashTypedData(plain));
+      expect(hashTypedDataHex(input)).toBe(hashTypedDataHex(plain));
+      expect(hashTypedDataDebug(input).structHash).toBe(`0x${bytesToHex(sha256(concatBytes(
+        sha256(new TextEncoder().encode("A(uint8[1] items)")), new Uint8Array([1]),
+      )))}`);
+    },
+  );
+
+  it("does not shorten the declared traversal when an indexed getter shrinks the array", () => {
+    for (const hash of [hashTypedData, hashTypedDataHex, hashTypedDataDebug]) {
+      const items = [1, 2];
+      Object.defineProperty(items, "0", { get() { items.length = 1; return 1; } });
+      expectCode(() => hash({
+        domain, origin, primaryType: "A",
+        types: { ...domainTypes, A: [{ name: "items", type: "uint8[2]" }] },
+        message: { items },
+      }), "E_VALUE_TYPE");
+    }
+  });
+});
+
 describe("uint64 JSON", () => {
   it("rejects unsafe JSON number for uint64 with E_UINT_RANGE", () => {
     expectCode(

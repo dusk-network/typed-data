@@ -175,6 +175,29 @@ describe("./bls: verifyTypedDataSignature", () => {
     expect(result).toEqual({ ...ACCEPTING_POLICY, digestHex, ok: false, code });
   });
 
+  it("verifies indexed array contents rather than a caller-supplied iterator", () => {
+    const input = baseInput({
+      primaryType: "A", types: { ...domainTypes, A: [{ name: "items", type: "uint8[1]" }] },
+      message: { items: [2] },
+    });
+    const { signatureHex: signatureForTwo } = signTypedDataInput(input, TEST_SK);
+    expect(verifyTypedDataSignature(input, signatureForTwo, TEST_PK_HEX, ACCEPTING_POLICY).ok).toBe(true);
+    const items = Object.defineProperty([1], Symbol.iterator, {
+      value: function* () { yield 2; },
+    });
+    input.message = { items };
+    expect(items[0]).toBe(1);
+    expect(JSON.stringify(items)).toBe("[1]");
+    expect(verifyTypedDataSignature(input, signatureForTwo, TEST_PK_HEX, ACCEPTING_POLICY)).toMatchObject({
+      ok: false, code: "E_SIG_INVALID",
+    });
+    const plain = { ...input, message: { items: [1] } };
+    const { signatureHex: signatureForOne } = signTypedDataInput(plain, TEST_SK);
+    expect(verifyTypedDataSignature(input, signatureForOne, TEST_PK_HEX, ACCEPTING_POLICY)).toMatchObject({
+      ok: true, code: "OK", digestHex: hashTypedDataHex(plain),
+    });
+  });
+
   it("captures the expected policy before hashing can invoke a message getter", () => {
     const input = baseInput();
     const { signatureHex } = signTypedDataInput(input, TEST_SK);
