@@ -104,11 +104,12 @@ wallet signing API, dependencies or generic authorization framework.
    `issueApproval(db, documentHash, authorizedPublicKeyHex)`. The document and key
    come from trusted application state, not an unauthenticated request. The stored
    grant fixes a random nonce and a five-minute expiry; deleting it revokes it.
-3. A connected browser requests the expected Wallet account's signature on the
-   configured chain, leaving origin injection to the Wallet:
+3. A connected browser uses its selected Dusk Connect `provider` to request the
+   expected Wallet account's signature on the configured chain, leaving origin
+   injection to the Wallet:
 
    ```js
-   const response = await window.dusk.request({
+   const response = await provider.request({
      method: "dusk_signTypedData",
      params: {
        version: 1,

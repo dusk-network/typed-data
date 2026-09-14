@@ -566,13 +566,36 @@ A verifier MUST:
 A verifier MUST NOT verify over the bare digest. Doing so would accept signatures
 produced by any raw-32-byte signing path.
 
-These steps do not authorize an application action. The application must establish
-its expected schema/primary type, domain name/version and verifying contract, the
-authorized signer, and any nonce/expiry rules. Constructing the input from trusted
-server state is one way to establish those expectations; accepting an arbitrary
+These steps do not authorize an application action. Before acting, a relying
+application MUST establish its expected schema/primary type, domain name/version,
+verifying contract and authorized signer. Constructing the input from trusted
+application state is one way to establish those expectations; accepting an arbitrary
 client-supplied schema and a valid signature is not. A reported account name or
-public key is not proof that the key is authorized. One-time actions require an
-atomic replay check and state transition, not a separate check-then-mark sequence.
+public key is not proof that the key is authorized.
+
+**Application replay and expiry requirements:**
+
+- For a **single-use authorization**, the application MUST bind an application-defined
+  nonce or equivalent unique intent identifier in the signed message. It MUST check
+  that the identifier is one it issued or otherwise authorized for this exact action,
+  and MUST reject one already consumed. It MUST atomically consume the identifier
+  with the authorized state transition, including across concurrent requests and
+  restarts; a separate check-then-mark sequence is insufficient.
+- For a **time-bounded authorization**, the application MUST bind the validity period
+  in the signed message and MUST reject the authorization outside that period,
+  including when committing the action. Single-use authorizations SHOULD also carry
+  a short deadline. A deliberately reusable time-bounded assertion need not become
+  single-use, but its application MUST enforce its intended scope and validity period.
+- An authentication challenge SHOULD use a fresh unpredictable nonce per attempt,
+  issued and tracked by the relying application with a short lifetime. Other actions
+  MAY use application-controlled counters or intent identifiers instead.
+
+The protocol assigns no built-in replay or expiry semantics to these ordinary
+application-defined fields. Verification of the signature/chain/origin does not
+check or consume them. The wallet does not supply application replay state, and a
+Moonlight transaction nonce does not automatically protect a typed-data authorization.
+A nonce callback inside a cryptographic verifier would not by itself make the
+application's business action atomic.
 
 Origin binding records the signing context; it is not browser-origin attestation
 or proof of adequate disclosure. Applications with multiple frontends or migrating

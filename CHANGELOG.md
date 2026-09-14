@@ -15,6 +15,7 @@
 ### Changed
 
 - Refuse excessive encoder structure with coded `E_COMPLEXITY` errors above the interoperability floor. ([#6])
+- Require relying applications to enforce single-use and time-bounded authorization semantics. ([#7])
 - Defined resource-floor measurements without changing the reference policy's acceptance behavior. ([#2])
 - Clarified the compact-JSON size diagnostic while retaining `E_POLICY_LIMIT`. ([#2])
 - Separated package publication from an explicit protocol-freeze declaration. ([wallet#22])
@@ -41,4 +42,5 @@ The package version `0.1.0-next.0` is an unpublished integration candidate, not 
 [#2]: https://github.com/dusk-network/typed-data/issues/2
 [#4]: https://github.com/dusk-network/typed-data/issues/4
 [#6]: https://github.com/dusk-network/typed-data/issues/6
+[#7]: https://github.com/dusk-network/typed-data/issues/7
 [wallet#22]: https://github.com/dusk-network/wallet/issues/22
