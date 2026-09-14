@@ -482,6 +482,7 @@ not call the optional signer-policy helper. They throw `TypedDataError` with cod
 | Distinct structs in each dependency closure | 128 |
 | Total declared fields across each dependency closure | 8,192 |
 | Characters in each `encodeType` / individual type expression | 1,048,576 |
+| Total typed-value visits per call, across domain and primary message | 262,144 |
 
 Dependency traversal counts entering a field type or unwrapping an array as one
 level. Value traversal counts entering a field value or array element as one level,
@@ -501,17 +502,40 @@ refused with `E_COMPLEXITY`; accepted inputs retain their exact encoding.
 Every otherwise-valid JSON input within the floor fits these guards. A future
 universal ceiling would need a separate normative acceptance decision and vectors.
 
-Type hashes are reused only within one call, complementing the bounds for distinct
-types. Array/field encodings feed the existing incremental SHA-256 operation without
-building an unbounded JavaScript argument list. These guards do not bound total
-value work: shared objects and arrays are re-encoded per path, potentially expanding
-exponentially in a compact object graph. JSON text cannot express shared references;
-in-process inputs and structured-clone transports can preserve them.
+A typed-value visit counts one root struct, field value or array element, whether
+atomic, array or struct (including empty structs). A struct is counted once, not
+again when its hash is emitted. The domain's four canonical fields count, including
+the implicit zero `verifyingContract`. One fresh counter is shared across both
+roots for each hash/debug/verification call. The optional policy helper uses the
+same visit budget across its two value walks, before compact-JSON serialization;
+its ordinary floor refusals remain `E_POLICY_LIMIT`. It is not full value validation.
 
-These guards are not a wall-clock or peak-memory guarantee: string/bytes contents
-and total value count still require work, and applications remain responsible for
-transport size/rate limits. The initial `validateTypedDataParams` shape check alone
-does not walk the full graph.
+Shared values are charged again on every path, not deduplicated by object identity
+or type. This bounds the number of typed-value visits even when a compact object
+graph would expand exponentially. JSON text cannot express shared references;
+in-process inputs and structured-clone transports can preserve them. Type hashes
+are still reused only within one call; value hashes are not memoized. Array/field
+encodings feed incremental SHA-256 without an unbounded JavaScript argument list.
+
+**Floor preservation:** each visited value occurrence in an otherwise-valid JSON
+input contributes at least one distinct byte to its compact serialization (a value
+token or opening object/array delimiter). The one possible implicit domain-contract
+visit can be charged to the top-level input object's opening delimiter, which is
+not itself visited. Thus the visit count cannot exceed the complete compact-JSON
+byte count, and every JSON input within the 262,144-byte floor fits this budget.
+The argument also covers alias-preserving copies with the same expanded JSON
+values. It does not rely on calling the policy helper or serializing from hashing.
+For in-process objects whose hooks or property descriptors omit or replace typed
+values during serialization, that serialization is not the complete §3 payload
+and its length cannot establish this guarantee; the visit guard still applies.
+
+These guards are not a wall-clock, peak-memory or arbitrary-JavaScript safety
+guarantee. A visit is not a byte-work unit: large strings/bytes, type processing,
+property enumeration, and policy serialization (including unused metadata) still
+have costs not measured by this counter. Getters, proxies and serialization hooks
+are not sandboxed or snapshotted. Applications remain responsible for transport
+size/rate limits. The initial `validateTypedDataParams` shape check alone does not
+walk the full graph.
 
 ---
 
