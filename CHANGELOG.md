@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.0-rc.0] - 2026-09-15
+
 ### Added
 
 - Added a runnable application-approval example with atomic replay and expiry enforcement. ([wallet#22])
@@ -41,7 +43,7 @@
 - Rejected undeclared symbol-keyed fields in typed-data structs. ([wallet#22])
 - Rejected non-string origins returned by accessors during hashing. ([wallet#22])
 
-The package version `0.1.0-next.0` is an unpublished integration candidate, not a frozen protocol v1 release. Specified encoding rules and existing frozen vector bytes are unchanged.
+The package version `0.1.0-rc.0` is a prerelease integration candidate, not a frozen protocol v1 release. Specified encoding rules and existing frozen vector bytes are unchanged.
 
 [#2]: https://github.com/dusk-network/typed-data/issues/2
 [#4]: https://github.com/dusk-network/typed-data/issues/4

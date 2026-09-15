@@ -15,7 +15,7 @@ see [Dusk Connect](https://github.com/dusk-network/connect).
 > Typed-data v1 is a draft and requires independent encoding review and an explicit
 > specification declaration before freezing. Publishing a package does not freeze it.
 > Pin the exact development version; do not assume draft v1 signatures remain
-> compatible across releases. The package has not been published to npm or JSR.
+> compatible across releases. This release candidate is `0.1.0-rc.0`.
 
 ## Usage
 
