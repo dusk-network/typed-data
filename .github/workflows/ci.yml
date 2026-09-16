@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -15,8 +16,10 @@ concurrency:
 jobs:
   ci:
     name: Build, test and compare vectors
-    runs-on: ubuntu-24.04
+    runs-on: core
     timeout-minutes: 15
+    # Match Connect: skip fork and draft PRs on the self-hosted runner.
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository) }}
     env:
       CI: true
       RUSTUP_TOOLCHAIN: stable
