@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- Run build, coverage, vector-regeneration guards, the approval example and locked native BLS comparison in CI. ([#11])
+- Compare the frozen typed-data corpus through the source encoder and compiled package entrypoint, including intermediates and rejection codes. ([#11])
+
 ## [0.1.0-rc.0] - 2026-09-15
 
 ### Added
@@ -49,4 +54,5 @@ The package version `0.1.0-rc.0` is a prerelease integration candidate, not a fr
 [#4]: https://github.com/dusk-network/typed-data/issues/4
 [#6]: https://github.com/dusk-network/typed-data/issues/6
 [#7]: https://github.com/dusk-network/typed-data/issues/7
+[#11]: https://github.com/dusk-network/typed-data/issues/11
 [wallet#22]: https://github.com/dusk-network/wallet/issues/22

@@ -164,8 +164,17 @@ npm ci
 npm run ci
 ```
 
-The build produces ESM JavaScript and TypeScript declarations in `dist/`. To create
-a package for local use, run `npm pack`.
+`npm run ci` includes coverage, both corpus-regeneration guards, a source/build
+corpus comparison and the application example. CI runs it on pushes to `main`
+and all pull requests, followed by the locked Rust BLS comparison.
+
+The build produces ESM JavaScript and TypeScript declarations in `dist/`. After
+building, `npm run test:built-vectors` checks every accepted digest/intermediate
+and rejected error code through both the TypeScript source encoder and the
+compiled package entrypoint, using native Node loading rather than Vitest's
+transforms. This is a local source/build check, not a comparison with the published
+JSR artifact or its generated npm bridge. To create a package for local use, run
+`npm pack`.
 
 To regenerate the test vectors and compare BLS results with the Rust implementation:
 
