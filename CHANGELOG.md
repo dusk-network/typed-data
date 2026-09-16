@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- Run build, coverage, vector-regeneration guards, the approval example and locked native BLS comparison in CI. ([#11])
+- Compare the frozen typed-data corpus through the source encoder and compiled package entrypoint, including intermediates and rejection codes. ([#11])
+
+### Changed
+
+- Require the trusted origin to be at least as prominent as the caller-supplied domain name in signing disclosures. ([#10])
+- Recommend warnings for domain names resembling wallets or other sites without treating labels as authenticated identities. ([#10])
+- Clarify that contract-scoped applications must require a non-zero expected contract, while omitted and zero values remain valid digest inputs. ([#10])
+- Document why dynamic arrays require a new scheme identifier rather than an extension of v1. ([#10])
+
 ## [0.1.0-rc.0] - 2026-09-15
 
 ### Added
@@ -49,4 +61,6 @@ The package version `0.1.0-rc.0` is a prerelease integration candidate, not a fr
 [#4]: https://github.com/dusk-network/typed-data/issues/4
 [#6]: https://github.com/dusk-network/typed-data/issues/6
 [#7]: https://github.com/dusk-network/typed-data/issues/7
+[#10]: https://github.com/dusk-network/typed-data/issues/10
+[#11]: https://github.com/dusk-network/typed-data/issues/11
 [wallet#22]: https://github.com/dusk-network/wallet/issues/22

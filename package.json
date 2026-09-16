@@ -48,7 +48,8 @@
     "generate:bls-vectors": "node scripts/generate-bls-vectors.ts",
     "test:bls-native": "node tools/rust-vector-emitter/check.mjs",
     "test:example": "node scripts/check-approval-example.mjs",
-    "ci": "npm run build && npm run test:coverage && npm run test:example",
+    "test:built-vectors": "node scripts/check-built-vectors.mjs",
+    "ci": "npm run build && npm run test:coverage && npm run test:built-vectors && npm run test:example",
     "prepack": "npm run build"
   },
   "devDependencies": {

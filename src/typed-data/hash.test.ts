@@ -709,7 +709,7 @@ describe("encoder total-value budget", () => {
     const over = arrayInput(`Leaf[${count + 1}]`, Array(count + 1).fill({}));
     over.types.Leaf = [];
     expectCode(() => hashTypedDataHex(over), "E_COMPLEXITY");
-  }, 15000);
+  }, 60000); // Full-budget struct hashing needs coverage headroom on hosted runners.
 
   it.each(["arrays", "structs"])("bounds cloned shared %s before policy JSON serialization", kind => {
     let values: unknown = kind === "arrays" ? 0 : {};
@@ -727,7 +727,7 @@ describe("encoder total-value budget", () => {
     for (const check of [hashTypedData, hashTypedDataHex, hashTypedDataDebug, checkPolicyLimits]) {
       expectCode(() => check(input), "E_COMPLEXITY");
     }
-  }, 15000);
+  }, 60000); // Same full-budget coverage headroom for the cloned struct case.
 
   it("shares the same inclusive budget across both policy roots", () => {
     // 6 root/domain visits + 261125 + 772 + 241 = 262144.

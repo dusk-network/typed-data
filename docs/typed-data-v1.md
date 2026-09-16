@@ -39,6 +39,9 @@ only thing borrowed.
 - Ethereum tooling compatibility.
 - Replacing transaction approval. A typed-data signature never moves funds by itself.
 - Decoding arbitrary contract calldata.
+- Dynamic arrays (`T[]`). Fixed `T[n]` is sufficient for the intended uses, and a
+  dynamic width would require an encoding rule this scheme does not define;
+  adding one requires a new scheme identifier, not an extension of v1.
 
 ---
 
@@ -277,6 +280,12 @@ The canonical domain value is:
 `name`, `version`, and `chainId` MUST be strings. `verifyingContract`, when
 present, MUST be a string; it is encoded as `bytes32` per §5.1, so it MUST decode
 to exactly 32 bytes. Omitting it is exactly equivalent to supplying 32 zero bytes.
+
+A verifier MUST NOT treat an all-zero `verifyingContract` as identifying a
+contract. An application that scopes signatures to a contract MUST require a
+non-zero value matching its trusted expected contract (§12.3). This is application
+policy, not an additional digest-validity rule: omitted and all-zero values remain
+valid inputs.
 
 ```
 domainSeparator = structHash("DuskTypedDataDomain", canonicalDomain)
@@ -785,7 +794,12 @@ verification. A valid signature does not establish that its signer met them.
    Unused types (§10.1) and extra metadata MUST NOT be described as contributing
    to the digest.
 4. **Trusted origin.** The disclosed origin MUST be the exact one injected by
-   the signer under §8, not a caller-supplied `origin` parameter.
+   the signer under §8, not a caller-supplied `origin` parameter. It MUST be
+   presented with at least the prominence given to any caller-supplied
+   `domain.name`, and MUST NOT be presented as subordinate to it. A signer SHOULD
+   warn when `domain.name` resembles the name of a wallet or of a site other than
+   the requesting origin. `domain.name` is a caller-supplied label, not an
+   authenticated identity; the absence of a warning does not establish trust.
 5. **Safe text boundaries.** Every Unicode `Bidi_Control` character MUST be
    neutralized in the display. Here, "invisible formatting controls" means
    `General_Category=Format` (`Cf`) in the
